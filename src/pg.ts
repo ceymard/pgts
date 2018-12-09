@@ -1,5 +1,7 @@
 import { Client } from 'pg'
 import { inspect } from 'util'
+import * as path from 'path'
+import * as fs from 'fs'
 
 const DB = 'postgres://administrator:admin@dev.intra.pg/app'
 const SCHEMA = 'api'
@@ -99,6 +101,7 @@ async function run() {
   // process.exit(0)
 
   const out = process.stdout
+  out.write(fs.readFileSync(path.join(__dirname, '../src/prelude.ts'), 'utf-8'))
 
   for (var r of rows) {
     if (r.comment) {
@@ -115,8 +118,12 @@ async function run() {
       out.write(`  ${col.column_name}: `)
       // console.log(col.udt_name)
       out.write(handle_udt_name(col.udt_name))
-      if (col.is_nullable === 'YES')
-        out.write(' | null = null')
+      if (col.is_nullable === 'YES') {
+        out.write(' | null')
+      }
+      if (col.column_default) {
+        out.write(` = ${col.column_default}`)
+      }
       out.write('\n')
     }
     console.log('}\n\n')
