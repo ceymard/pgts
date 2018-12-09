@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "outDir": "lib",
+    "rootDir": "src",
+    "experimentalDecorators": true,
+    "jsx": "react",
+    "reactNamespace": "E",
+    "resolveJsonModule": true,
+    "lib": ["es6", "dom"]
+  }
+}
