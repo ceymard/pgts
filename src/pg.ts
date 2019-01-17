@@ -134,9 +134,16 @@ async function run() {
       }
       if (col.column_default) {
         out.write(` = ${handle_default_value(col.column_default)}`)
+      } else if (col.is_nullable == 'YES') {
+        out.write(` = null`)
+      } else {
+        out.write(` = undefined!`)
       }
       out.write('\n')
     }
+    console.log(`\n  /** !AUGMENT ${camelcase(r.table_name)} **/`)
+    console.log(`    // extend this class here`)
+    console.log(`  /** !END AUGMENT **/`)
     console.log('}\n\n')
   }
 
