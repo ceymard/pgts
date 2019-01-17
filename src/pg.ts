@@ -3,7 +3,7 @@ import { inspect } from 'util'
 import * as path from 'path'
 import * as fs from 'fs'
 
-const DB = 'postgres://administrator:admin@dev.intra.pg/app'
+const DB = 'postgres://administrator:admin@172.18.0.2/app'
 const SCHEMA = 'api'
 
 
@@ -57,6 +57,17 @@ function handle_udt_name(s: string) {
   else
     type = camelcase(s)
   return type + (arr ? '[]' : '')
+}
+
+function handle_default_value(s: string) {
+  var m: RegExpExecArray | null
+  if (m = /'(.*)'::json/.exec(s) || /(.*)::text$/.exec(s)) {
+    return m[1]
+  }
+  if (m = /'\{\}'::text\[\]/.exec(s)) {
+    return '[]'
+  }
+  return s
 }
 
 export function udt(name: string) {
@@ -122,54 +133,61 @@ async function run() {
         out.write(' | null')
       }
       if (col.column_default) {
-        out.write(` = ${col.column_default}`)
+        out.write(` = ${handle_default_value(col.column_default)}`)
       }
       out.write('\n')
     }
     console.log('}\n\n')
   }
 
-  const functions = await c.query(`
+  const functions_new = await c.query(/* sql */`
     SELECT
-
-      fun.routine_name as name,
-      fun.type_udt_name as returns,
-      COALESCE(JSON_AGG(param ORDER BY ordinal_position) FILTER (WHERE param.parameter_name IS NOT NULL), '[]') as params
-
-    FROM information_schema.routines fun
-      LEFT JOIN information_schema.parameters param ON
-        param.specific_schema = fun.specific_schema
-        AND param.specific_catalog = fun.specific_catalog
-        AND param.specific_name = fun.specific_name
-    WHERE fun.specific_schema = $1
-    GROUP BY fun.routine_name, fun.type_udt_name
+      pro.proname as name,
+      pro.proargmodes::text[] as arg_modes,
+      pro.proargnames::text[] as arg_names,
+      typ2.typname as rettype,
+      COALESCE(JSON_AGG(typ.typname ORDER BY ordinality) FILTER (WHERE typ.typname IS NOT NULL), '[]') as args
+    FROM pg_namespace name
+    INNER JOIN pg_proc pro
+      ON pro.pronamespace = name.oid
+      LEFT JOIN unnest(COALESCE(pro.proallargtypes, pro.proargtypes)) WITH ORDINALITY as u(type_oid, ordinality) ON true
+      LEFT JOIN pg_type typ ON typ.oid = type_oid
+      INNER JOIN pg_type typ2 ON typ2.oid = pro.prorettype
+    WHERE name.nspname = $1 AND typ2.typname <> 'trigger'
+    GROUP BY pro.proname, pro.proargmodes, pro.proargnames, typ2.typname
   `, [SCHEMA])
+  // information_schema.routines
+  // information_schema.parameters
 
-  const frows = functions.rows as {name: string, returns: string, params: Parameter[]}[]
-  // log(frows)
+  for (var f2 of functions_new.rows) {
+    const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, args: string[]}
+    var args = therow.args.map(a => handle_udt_name(a))
+    var names = therow.arg_names
+    var result = handle_udt_name(therow.rettype)
+    if (therow.rettype === 'record') {
+      // Find first argument which is table
+      var idx = therow.arg_modes.indexOf('t')
+      var resargs = args.slice(idx)
+      var resnames = names.slice(idx)
+      args = args.slice(0, idx)
+      names = names.slice(0, idx)
+      result = `{${resargs.map((t, i) => `${resnames[i]}: ${t}`).join(', ')}}`
+    }
 
-  for (var f of frows) {
-    // Ignore triggers
-    if (f.returns === 'trigger') continue
+    var final_args = args.map((a, i) => `${names[i]}: ${a}`).join(', ')
+    // console.log(therow.name, final_args, result)
 
-    out.write(`export function ${f.name}(`)
-    var params = f.params
-      .map(p => `${p.parameter_name}: ${handle_udt_name(p.udt_name)}`)
-    out.write(params.join(', '))
-    out.write(`): Promise<${handle_udt_name(f.returns)}> {\n`)
-    out.write(`  return fetch('/pg/rpc/${f.name}', {
+    out.write(`export function ${therow.name}(${final_args}): Promise<${result}> {\n`)
+    out.write(`  return fetch('/pg/rpc/${therow.name}', {
       method: 'POST',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({${f.params.map(f => f.parameter_name).join(', ')}})
-  }).then(response => response.json())`)
+        body: JSON.stringify({${(names||[]).join(', ')}})
+    }).then(response => response.json())`)
     out.write('\n}\n\n')
   }
-
-  // information_schema.routines
-  // information_schema.parameters
 
   await c.end()
 }
