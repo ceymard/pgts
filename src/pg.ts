@@ -48,7 +48,7 @@ function handle_udt_name(s: string) {
     type = 'number'
   else if (s === 'text')
     type = 'string'
-  else if (s === 'date')
+  else if (s === 'date' || s === 'timestamp')
     type = 'Date'
   else if (s === 'bool')
     type = 'boolean'
@@ -67,7 +67,7 @@ function handle_default_value(s: string) {
   if (m = /'\{\}'::text\[\]/.exec(s)) {
     return '[]'
   }
-  return s
+  return `undefined! // ${s}`
 }
 
 export function udt(name: string) {
@@ -119,7 +119,7 @@ async function run() {
       out.write(`/**\n${r.comment.split('\n').map(c => ` * ${c}`).join('\n')}\n */\n`)
     }
     console.log('export class', camelcase(r.table_name), 'extends Model {')
-    console.log(`  static readonly url = '/pg/${r.table_name}'\n`)
+    console.log(`  static url = '/pg/${r.table_name}'\n`)
     for (var col of r.columns) {
       if (col.comment) {
         out.write(`  /**\n`)
@@ -141,9 +141,9 @@ async function run() {
       }
       out.write('\n')
     }
-    console.log(`\n  /** !AUGMENT ${camelcase(r.table_name)} **/`)
+    console.log(`\n  /** !impl ${camelcase(r.table_name)} **/`)
     console.log(`    // extend this class here`)
-    console.log(`  /** !END AUGMENT **/`)
+    console.log(`  /** !end impl **/`)
     console.log('}\n\n')
   }
 
@@ -153,7 +153,7 @@ async function run() {
       pro.proargmodes::text[] as arg_modes,
       pro.proargnames::text[] as arg_names,
       typ2.typname as rettype,
-      COALESCE(JSON_AGG(typ.typname ORDER BY ordinality) FILTER (WHERE typ.typname IS NOT NULL), '[]') as args
+      COALESCE(JSON_AGG(json_build_object('type', typ.typname, 'notnull', typ.typnotnull) ORDER BY ordinality) FILTER (WHERE typ.typname IS NOT NULL), '[]') as args
     FROM pg_namespace name
     INNER JOIN pg_proc pro
       ON pro.pronamespace = name.oid
@@ -167,8 +167,9 @@ async function run() {
   // information_schema.parameters
 
   for (var f2 of functions_new.rows) {
-    const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, args: string[]}
-    var args = therow.args.map(a => handle_udt_name(a))
+    const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, args: {type: string, notnull: boolean}[]}
+    var args = therow.args.map(a => handle_udt_name(a.type))
+    var notnulls = therow.args.map(a => !!a.notnull)
     var names = therow.arg_names
     var result = handle_udt_name(therow.rettype)
     if (therow.rettype === 'record') {
@@ -176,23 +177,19 @@ async function run() {
       var idx = therow.arg_modes.indexOf('t')
       var resargs = args.slice(idx)
       var resnames = names.slice(idx)
+      var notnulls = notnulls.slice(idx)
       args = args.slice(0, idx)
       names = names.slice(0, idx)
-      result = `{${resargs.map((t, i) => `${resnames[i]}: ${t}`).join(', ')}}`
+      result = `{${resargs.map((t, i) => `${resnames[i]}: ${t}${!notnulls[i] ? ' | null' : ''}`).join(', ')}}[]`
     }
 
     var final_args = args.map((a, i) => `${names[i]}: ${a}`).join(', ')
     // console.log(therow.name, final_args, result)
 
     out.write(`export function ${therow.name}(${final_args}): Promise<${result}> {\n`)
-    out.write(`  return fetch('/pg/rpc/${therow.name}', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json'
-      },
-        body: JSON.stringify({${(names||[]).join(', ')}})
-    }).then(response => response.json())`)
+    out.write(`  /** !impl ${therow.name}**/\n`)
+    out.write(`  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[]).join(', ')}}))\n`)
+    out.write(`  /** !end impl **/\n`)
     out.write('\n}\n\n')
   }
 
