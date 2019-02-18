@@ -27,7 +27,11 @@ export function GET(url: string) {
       'Content-Type': 'application/json'
     },
     credentials: 'include'
-  }).then(res => res.json())
+  }).then(res => {
+  	if (res.status < 200 || res.status >= 400)
+  	  return Promise.reject(res)
+  	return res.json()
+  })
   /** !end impl **/
 }
 
@@ -42,7 +46,11 @@ export async function POST(url: string, body: any = {}): Promise<any> {
     },
     credentials: 'include',
     body: body
-  }).then(res => res.json())
+  }).then(res => {
+    if (res.status < 200 || res.status >= 400)
+      return Promise.reject(res)
+    return res.json()
+  })
   /** !end impl **/
 }
 
