@@ -49,7 +49,7 @@ function handle_udt_name(s: string) {
   else if (s === 'text')
     type = 'string'
   else if (s === 'date' || s === 'timestamp')
-    type = 'Date'
+    type = 'Date | string'
   else if (s === 'bool')
     type = 'boolean'
   else if (s === 'void')
