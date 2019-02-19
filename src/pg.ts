@@ -11,6 +11,7 @@ export function log(m: any) {
   console.warn(inspect(m, {colors: true, depth: null}))
 }
 
+
 export interface ColumnResult {
   table_catalog: string
   table_schema: string
@@ -38,7 +39,72 @@ function camelcase(s: string) {
   return s[0].toUpperCase() + s.slice(1).replace(/_([\w])/g, (match, l) => l.toUpperCase())
 }
 
-function handle_udt_name(s: string) {
+
+async function get_values(c: Client, col: ColumnResult) {
+  if (col.data_type !== 'text')
+    return null
+
+  const res = /* sql */ await c.query(`SELECT
+    tc.table_schema,
+    tc.constraint_name,
+    tc.table_name,
+    kcu.column_name,
+    ccu.table_schema AS foreign_table_schema,
+    ccu.table_name AS foreign_table_name,
+    ccu.column_name AS foreign_column_name
+  FROM
+    information_schema.table_constraints AS tc
+    JOIN information_schema.key_column_usage AS kcu
+      ON tc.constraint_name = kcu.constraint_name
+      AND tc.table_schema = kcu.table_schema
+    JOIN information_schema.constraint_column_usage AS ccu
+      ON ccu.constraint_name = tc.constraint_name
+      AND ccu.table_schema = tc.table_schema
+  WHERE
+    tc.constraint_type = 'FOREIGN KEY'
+    AND
+    (tc.table_name = $1
+    AND tc.table_schema = $2
+    AND kcu.column_name = $3
+    OR
+    ccu.table_name = $1
+    AND ccu.table_schema = $2
+    AND ccu.column_name = $3
+    )
+  `, [col.table_name, col.table_schema, col.column_name])
+
+  const real_res = res.rows[0] as {
+    table_schema: string
+    constraint_name: string
+    table_name: string
+    column_name: string
+    foreign_table_name: string
+    foreign_table_schema: string
+    foreign_column_name: string
+  }
+
+  if (!real_res)
+    return null
+
+  // log(real_res)
+  if (real_res.table_name === col.table_name) {
+    return handle_udt_name(real_res.foreign_table_name) + `['${real_res.foreign_column_name}']`
+  }
+
+  const values = await c.query(`SELECT distinct "${real_res.foreign_column_name}" as val
+    FROM "${real_res.foreign_table_schema}"."${real_res.foreign_table_name}"
+  `)
+
+  if (values.rows.length >= 50)
+    return null
+  return values.rows.map(r => `'${r.val.replace(/'/g, '\\\'')}'`).join(' | ')
+  // log()
+
+}
+
+
+
+function handle_udt_name(s: string, col?: ColumnResult) {
   // log(s)
   var arr = (s[0] === '_')
   if (arr)
@@ -47,9 +113,9 @@ function handle_udt_name(s: string) {
 
   if (s.match(/^(int|float)\d+$/))
     type = 'number'
-  else if (s === 'text')
+  else if (s === 'text') {
     type = 'string'
-  else if (s === 'date' || s === 'timestamp')
+  } else if (s === 'date' || s === 'timestamp')
     type = 'Date | string'
   else if (s === 'bool')
     type = 'boolean'
@@ -59,6 +125,7 @@ function handle_udt_name(s: string) {
     type = camelcase(s)
   return type + (arr ? '[]' : '')
 }
+
 
 function handle_default_value(s: string) {
   var m: RegExpExecArray | null
@@ -70,6 +137,7 @@ function handle_default_value(s: string) {
   }
   return `undefined! // ${s}`
 }
+
 
 export function udt(name: string) {
   return handle_udt_name(name).replace(/^./, m => m.toUpperCase())
@@ -85,7 +153,7 @@ async function run() {
 
   // console.log('connected')
 
-  const res = await c.query(`
+  const res = await c.query(/* sql */ `
     SELECT
       t.table_name,
       d.description as comment,
@@ -129,7 +197,10 @@ async function run() {
       }
       out.write(`  ${col.column_name}: `)
       // console.log(col.udt_name)
-      out.write(handle_udt_name(col.udt_name))
+
+      const values = await get_values(c, col)
+      out.write(values || handle_udt_name(col.udt_name))
+
       if (col.is_nullable === 'YES') {
         out.write(' | null')
       }
@@ -203,5 +274,6 @@ async function run() {
 
   await c.end()
 }
+
 
 run().catch(e => console.error(e))
