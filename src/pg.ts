@@ -8,7 +8,7 @@ const SCHEMA = 'api'
 
 
 export function log(m: any) {
-  console.log(inspect(m, {colors: true, depth: null}))
+  console.warn(inspect(m, {colors: true, depth: null}))
 }
 
 export interface ColumnResult {
@@ -39,6 +39,7 @@ function camelcase(s: string) {
 }
 
 function handle_udt_name(s: string) {
+  // log(s)
   var arr = (s[0] === '_')
   if (arr)
     s = s.slice(1)
@@ -153,6 +154,7 @@ async function run() {
       pro.proargmodes::text[] as arg_modes,
       pro.proargnames::text[] as arg_names,
       typ2.typname as rettype,
+      typ2.typrelid as relid,
       COALESCE(JSON_AGG(json_build_object('type', typ.typname, 'notnull', typ.typnotnull) ORDER BY ordinality) FILTER (WHERE typ.typname IS NOT NULL), '[]') as args
     FROM pg_namespace name
     INNER JOIN pg_proc pro
@@ -161,17 +163,23 @@ async function run() {
       LEFT JOIN pg_type typ ON typ.oid = type_oid
       INNER JOIN pg_type typ2 ON typ2.oid = pro.prorettype
     WHERE name.nspname = $1 AND typ2.typname <> 'trigger'
-    GROUP BY pro.proname, pro.proargmodes, pro.proargnames, typ2.typname
+    GROUP BY pro.proname, pro.proargmodes, pro.proargnames, typ2.typname, typ2.typrelid
   `, [SCHEMA])
   // information_schema.routines
   // information_schema.parameters
 
   for (var f2 of functions_new.rows) {
-    const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, args: {type: string, notnull: boolean}[]}
+    const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, relid: number, args: {type: string, notnull: boolean}[]}
     var args = therow.args.map(a => handle_udt_name(a.type))
     var notnulls = therow.args.map(a => !!a.notnull)
     var names = therow.arg_names
     var result = handle_udt_name(therow.rettype)
+
+    // If we have a relid, it means this function is returning a table row type
+    // Postgrest seems to think this means we will return an array.
+    if (therow.relid)
+      result = result + '[]'
+
     if (therow.rettype === 'record') {
       // Find first argument which is table
       var idx = therow.arg_modes.indexOf('t')
