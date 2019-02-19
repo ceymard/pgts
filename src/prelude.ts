@@ -57,9 +57,9 @@ export async function POST(url: string, body: any = {}): Promise<any> {
 export class Model {
   static url = ''
 
-  static async get<T extends Model>(this: ModelMaker<T>): Promise<T[]> {
+  static async get<T extends Model>(this: ModelMaker<T>, supl: string = ''): Promise<T[]> {
     const ret = this as any as (new () => T)
-    const res = await GET(this.url)
+    const res = await GET(this.url + supl)
     const len = res.length
     const result = new Array(len) as T[]
     const pros = Object.getOwnPropertyNames(new ret()) as (keyof T)[]
@@ -74,8 +74,29 @@ export class Model {
     return result
   }
 
-  async save() {
+  async save(): Promise<this> {
+    const heads = new Headers({
+      Accept: 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+      'Content-Type': 'application/json'
+    })
+    heads.append('Prefer', 'return=representation')
+    const res = await fetch((this.constructor as any).url, {
+      method: 'POST',
+      headers: heads,
+      credentials: 'include',
+      body: JSON.stringify(this)
+    })
 
+    if (res.status < 200 || res.status >= 400)
+      return Promise.reject(res)
+
+    const payload = (await res.json())[0]
+    const n = new (this.constructor as any)()
+    for (var x in payload) {
+      n[x] = (payload as any)[x]
+    }
+    return n
   }
 
   /** !impl Model **/
