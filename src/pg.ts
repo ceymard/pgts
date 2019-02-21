@@ -296,8 +296,8 @@ async function run() {
 
       const values = await get_values(c, table_name, col)
       const udt_name = handle_udt_name(col.typname)
-      const needs_deser = !values && !udt_name.match(/^(string|number|boolean|Json)(\[\])?$/) && !udt_name.includes('|')
-      out.write(`  ${!needs_deser ? '@a' : `@aa(${udt_name.replace('[]', '')})`} ${colname}: `)
+      const custom_type = !values && !udt_name.match(/^(string|number|boolean|Json)(\[\])?$/) && !udt_name.includes('|')
+      out.write(`  ${!custom_type ? '@a' : `@aa(${udt_name.replace('[]', '')})`} ${colname}: `)
       if (values) {
         out.write(values)
       } else {
@@ -311,6 +311,10 @@ async function run() {
         out.write(` = ${handle_default_value(col.default)}`)
       } else if (!col.attnotnull) {
         out.write(` = null`)
+      } else if (udt_name.includes('[]')) { // we have an array.
+        out.write(` = []`)
+      } else if (custom_type) {
+        out.write(` = new ${udt_name}()`)
       } else {
         out.write(` = undefined!`)
       }
