@@ -93,6 +93,7 @@ async function get_values(c: Client, col: ColumnResult) {
 
   const values = await c.query(`SELECT distinct "${real_res.foreign_column_name}" as val
     FROM "${real_res.foreign_table_schema}"."${real_res.foreign_table_name}"
+    ORDER BY val
   `)
 
   if (values.rows.length >= 50)
@@ -145,6 +146,26 @@ export function udt(name: string) {
 
 
 async function run() {
+
+  const file = process.argv[2]
+  if (!file)
+    throw new Error('Please give a filename')
+
+  const contents = fs.readFileSync(file, 'utf-8')
+  // console.log(contents)
+
+  const re_impl_blocks = /!impl ([^\s*]+)\s*\*\*\/\s*\n((.|\n)*?)\n\s*\/\*\*\s*!end impl/img
+
+  const impl_blocks: {[name: string]: string} = {}
+  var match: RegExpMatchArray | null
+  while (match = re_impl_blocks.exec(contents)) {
+    impl_blocks[match[1]] = match[2] + '\n'
+  }
+
+  // log(impl_blocks)
+  // process.exit(0)
+  const out = fs.createWriteStream(file, 'utf-8')
+
   const c = new Client(DB)
   // console.log('wha')
   await c.connect()
@@ -180,15 +201,16 @@ async function run() {
 
   // process.exit(0)
 
-  const out = process.stdout
   out.write(fs.readFileSync(path.join(__dirname, '../src/prelude.ts'), 'utf-8'))
 
   for (var r of rows) {
     if (r.comment) {
       out.write(`/**\n${r.comment.split('\n').map(c => ` * ${c}`).join('\n')}\n */\n`)
     }
-    console.log('export class', camelcase(r.table_name), 'extends Model {')
-    console.log(`  static url = '/pg/${r.table_name}'\n`)
+    out.write('export class ')
+    out.write(camelcase(r.table_name))
+    out.write(' extends Model {\n')
+    out.write(`  static url = '/pg/${r.table_name}'\n`)
     for (var col of r.columns) {
       if (col.comment) {
         out.write(`  /**\n`)
@@ -196,7 +218,7 @@ async function run() {
         out.write(`\n   */\n`)
       }
       out.write(`  ${col.column_name}: `)
-      // console.log(col.udt_name)
+      // out.write(col.udt_name)
 
       const values = await get_values(c, col)
       out.write(values || handle_udt_name(col.udt_name))
@@ -213,10 +235,10 @@ async function run() {
       }
       out.write('\n')
     }
-    console.log(`\n  /** !impl ${camelcase(r.table_name)} **/`)
-    console.log(`    // extend this class here`)
-    console.log(`  /** !end impl **/`)
-    console.log('}\n\n')
+    out.write(`\n  /** !impl ${camelcase(r.table_name)} **/\n`)
+    out.write(impl_blocks[camelcase(r.table_name)] || `    // extend this class here\n`)
+    out.write(`\n  /** !end impl **/\n`)
+    out.write('}\n\n')
   }
 
   const functions_new = await c.query(/* sql */`
@@ -263,11 +285,11 @@ async function run() {
     }
 
     var final_args = args.map((a, i) => `${names[i]}: ${a}`).join(', ')
-    // console.log(therow.name, final_args, result)
+    // out.write(therow.name, final_args, result)
 
     out.write(`export function ${therow.name}(${final_args}): Promise<${result}> {\n`)
     out.write(`  /** !impl ${therow.name}**/\n`)
-    out.write(`  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[]).join(', ')}}))\n`)
+    out.write(impl_blocks[therow.name] || `  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[]).join(', ')}}))\n`)
     out.write(`  /** !end impl **/\n`)
     out.write('\n}\n\n')
   }
