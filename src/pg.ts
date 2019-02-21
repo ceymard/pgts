@@ -12,6 +12,67 @@ export function log(m: any) {
 }
 
 
+export interface PgType {
+  typname: string
+  typnamespace: string // really number
+  typowner: string // really number
+  typlen: number
+  typbyval: boolean
+  typtype: string
+  typcategory: string
+  typispreferred: boolean
+  typdelim: string
+  typrelid: string // really number
+  typelem: string
+  typarray: string
+  typinput: string
+  typoutput: string
+  typreceive: string
+  typsend: string
+  typmodin: string
+  typmodout: string
+  typanalyze: string
+  typalign: string
+  typstorage: string
+  typnotnull: boolean
+  typbasetype: string // num
+  typtypmod: number
+  typndims: number
+  typcollation: string
+  typdefaultbin: string | null
+  typacl: null | string
+}
+
+
+/**
+ * The result type from pgattribute
+ */
+export interface PgAttribute {
+  attrelid: number
+  attname: string
+  atttypid: string
+  attstattarget: number
+  attlen: number
+  attnum: number
+  attndims: number
+  attcacheoff: number
+  atttypmod: number
+  attbyval: boolean
+  attstorage: string
+  attalign: string
+  attnotnull: boolean
+  atthasdef: boolean
+  atthasmissing: boolean
+  attidentify: null
+  attisdropped: boolean
+  attislocal: boolean
+  attinhcount: number
+  attcollation: number
+  attacl: null
+  attoptions: null
+}
+
+
 export interface ColumnResult {
   table_catalog: string
   table_schema: string
@@ -40,8 +101,8 @@ function camelcase(s: string) {
 }
 
 
-async function get_values(c: Client, col: ColumnResult) {
-  if (col.data_type !== 'text')
+async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
+  if (col.typname !== 'text')
     return null
 
   const res = /* sql */ await c.query(`SELECT
@@ -71,7 +132,7 @@ async function get_values(c: Client, col: ColumnResult) {
     AND ccu.table_schema = $2
     AND ccu.column_name = $3
     )
-  `, [col.table_name, col.table_schema, col.column_name])
+  `, [table, SCHEMA, col.attname])
 
   const real_res = res.rows[0] as {
     table_schema: string
@@ -87,7 +148,7 @@ async function get_values(c: Client, col: ColumnResult) {
     return null
 
   // log(real_res)
-  if (real_res.table_name === col.table_name) {
+  if (real_res.table_name === table) {
     return handle_udt_name(real_res.foreign_table_name) + `['${real_res.foreign_column_name}']`
   }
 
@@ -114,7 +175,7 @@ function handle_udt_name(s: string, col?: ColumnResult) {
 
   if (s.match(/^(int|float)\d+$/))
     type = 'number'
-  else if (s === 'text') {
+  else if (s === 'text' || s === 'name') {
     type = 'string'
   } else if (s === 'date' || s === 'timestamp')
     type = 'Date | string'
@@ -162,10 +223,6 @@ async function run() {
     impl_blocks[match[1]] = match[2] + '\n'
   }
 
-  // log(impl_blocks)
-  // process.exit(0)
-  const out = fs.createWriteStream(file, 'utf-8')
-
   const c = new Client(DB)
   // console.log('wha')
   await c.connect()
@@ -174,32 +231,41 @@ async function run() {
 
   // console.log('connected')
 
-  const res = await c.query(/* sql */ `
+  const types = await c.query(/* sql */ `
     SELECT
-      t.table_name,
+      row_to_json(typ) as "type",
       d.description as comment,
-      (SELECT json_agg(T) FROM (
-        SELECT
-          c.*,
-          d2.description as comment
-        FROM information_schema.columns c
-          LEFT JOIN pg_description d2
-            ON d2.objoid = ($1 || '.' || t.table_name)::regclass::oid AND d2.objsubid = c.ordinal_position
-        WHERE
-          c.table_schema = t.table_schema
-          AND c.table_name = t.table_name
-      ) T) as columns
-    FROM
-      information_schema.tables t
-      LEFT JOIN pg_description d ON d.objoid = ($1 || '.' || t.table_name)::regclass::oid AND d.objsubid = 0
-    WHERE
-      table_schema = $1
+      (SELECT json_agg(att ORDER BY att.attnum) FROM
+        (SELECT att.*, typ2.*, d2.description as comment, de.adsrc as default FROM pg_attribute att
+          INNER JOIN pg_type typ2 ON typ2.oid = att.atttypid
+          LEFT JOIN pg_description d2 ON
+            d2.objoid = typ.typname::regclass::oid AND d2.objsubid = att.attnum
+          LEFT JOIN pg_attrdef de ON
+            de.adrelid = typ.typname::regclass::oid AND de.adnum = att.attnum
+        WHERE att.attrelid = typ.typname::regclass::oid
+          AND att.attname NOT IN ('tableoid', 'cmax', 'xmax', 'cmin', 'xmin', 'ctid')
+        ) att
+      ) as attributes
+    FROM pg_namespace nam INNER JOIN
+      pg_type typ ON typ.typnamespace = nam.oid LEFT JOIN
+      pg_description d ON d.objoid = typ.typname::regclass::oid AND d.objsubid = 0
+    WHERE nam.nspname = $1
+      AND typ.typname[0] <> '_'
   `, [SCHEMA])
 
-  const rows = res.rows as {table_schema: string, table_name: string, comment: string | null, columns: ColumnResult[]}[]
-  // log(rows)
+  const typrows = types.rows as {type: PgType, comment: string | null, attributes: (PgType & PgAttribute & {comment: string | null, default: string | null})[]}[]
+
+  // log(typrows.map(r => {return {
+  //   name: r.type.typname,
+  //   kind: r.type.typrelid,
+  //   comment: r.comment,
+  //   attrs: r.attributes.map(a => { return { name: a.attname, comment: a.comment, type: a.typname, def: a.default } })
+  // }}))
 
   // process.exit(0)
+
+  const out = fs.createWriteStream(file, 'utf-8')
+
 
   out.write(fs.readFileSync(path.join(__dirname, '../src/prelude.ts'), 'utf-8')
     .replace(re_impl_blocks, (match, name, contents) => {
@@ -209,40 +275,43 @@ async function run() {
     })
   )
 
-  for (var r of rows) {
+  for (var r of typrows) {
+    const table_name = r.type.typname
+
     if (r.comment) {
       out.write(`/**\n${r.comment.split('\n').map(c => ` * ${c}`).join('\n')}\n */\n`)
     }
     out.write('export class ')
-    out.write(camelcase(r.table_name))
+    out.write(camelcase(table_name))
     out.write(' extends Model {\n')
-    out.write(`  static url = '/pg/${r.table_name}'\n`)
-    for (var col of r.columns) {
+    out.write(`  static url = '/pg/${table_name}'\n`)
+    for (var col of r.attributes) {
+      const colname = col.attname
       if (col.comment) {
         out.write(`  /**\n`)
         out.write(col.comment.split('\n').map(c => `   * ${c}`).join('\n'))
         out.write(`\n   */\n`)
       }
-      out.write(`  ${col.column_name}: `)
+      out.write(`  ${colname}: `)
       // out.write(col.udt_name)
 
-      const values = await get_values(c, col)
-      out.write(values || handle_udt_name(col.udt_name))
+      const values = await get_values(c, table_name, col)
+      out.write(values || handle_udt_name(col.typname))
 
-      if (col.is_nullable === 'YES') {
+      if (!col.attnotnull) {
         out.write(' | null')
       }
-      if (col.column_default) {
-        out.write(` = ${handle_default_value(col.column_default)}`)
-      } else if (col.is_nullable == 'YES') {
+      if (col.default) {
+        out.write(` = ${handle_default_value(col.default)}`)
+      } else if (!col.attnotnull) {
         out.write(` = null`)
       } else {
         out.write(` = undefined!`)
       }
       out.write('\n')
     }
-    out.write(`\n  /** !impl ${camelcase(r.table_name)} **/\n`)
-    out.write(impl_blocks[camelcase(r.table_name)] || `    // extend this class here\n`)
+    out.write(`\n  /** !impl ${camelcase(table_name)} **/\n`)
+    out.write(impl_blocks[camelcase(table_name)] || `    // extend this class here\n`)
     out.write(`\n  /** !end impl **/\n`)
     out.write('}\n\n')
   }
