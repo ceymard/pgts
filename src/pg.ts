@@ -201,7 +201,13 @@ async function run() {
 
   // process.exit(0)
 
-  out.write(fs.readFileSync(path.join(__dirname, '../src/prelude.ts'), 'utf-8'))
+  out.write(fs.readFileSync(path.join(__dirname, '../src/prelude.ts'), 'utf-8')
+    .replace(re_impl_blocks, (match, name, contents) => {
+      if (impl_blocks[name])
+        return match.replace(contents, impl_blocks[name])
+      return match
+    })
+  )
 
   for (var r of rows) {
     if (r.comment) {
