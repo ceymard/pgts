@@ -11,5 +11,8 @@
   "dependencies": {
     "@types/pg": "^7.4.11",
     "pg": "^7.7.1"
+  },
+  "devDependencies": {
+    "cerialize": "^0.1.18"
   }
 }

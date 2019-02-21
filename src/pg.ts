@@ -292,11 +292,17 @@ async function run() {
         out.write(col.comment.split('\n').map(c => `   * ${c}`).join('\n'))
         out.write(`\n   */\n`)
       }
-      out.write(`  ${colname}: `)
       // out.write(col.udt_name)
 
       const values = await get_values(c, table_name, col)
-      out.write(values || handle_udt_name(col.typname))
+      const udt_name = handle_udt_name(col.typname)
+      const needs_deser = !values && !udt_name.match(/^(string|number|boolean|Json)(\[\])?$/) && !udt_name.includes('|')
+      out.write(`  ${!needs_deser ? '@a' : `@aa(${udt_name.replace('[]', '')})`} ${colname}: `)
+      if (values) {
+        out.write(values)
+      } else {
+        out.write(udt_name)
+      }
 
       if (!col.attnotnull) {
         out.write(' | null')
