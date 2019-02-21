@@ -251,6 +251,7 @@ async function run() {
       pg_description d ON d.objoid = typ.typname::regclass::oid AND d.objsubid = 0
     WHERE nam.nspname = $1
       AND typ.typname[0] <> '_'
+    ORDER BY typ.oid
   `, [SCHEMA])
 
   const typrows = types.rows as {type: PgType, comment: string | null, attributes: (PgType & PgAttribute & {comment: string | null, default: string | null})[]}[]
