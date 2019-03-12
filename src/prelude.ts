@@ -89,7 +89,7 @@ export class Model {
       method: 'POST',
       headers: heads,
       credentials: 'include',
-      body: Serialize(this)
+      body: JSON.stringify(Serialize(this))
     })
 
     if (res.status < 200 || res.status >= 400)
