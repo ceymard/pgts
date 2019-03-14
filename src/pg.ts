@@ -3,7 +3,7 @@ import { inspect } from 'util'
 import * as path from 'path'
 import * as fs from 'fs'
 
-const DB = 'postgres://administrator:admin@172.18.0.2/app'
+const DB = 'postgres://administrator:admin@1812-intra_postgres_1.docker/app'
 const SCHEMA = 'api'
 
 
@@ -286,6 +286,8 @@ async function run() {
     out.write(camelcase(table_name))
     out.write(' extends Model {\n')
     out.write(`  static url = '/pg/${table_name}'\n`)
+
+    var create_def = [] as string[]
     for (var col of r.attributes) {
       const colname = col.attname
       if (col.comment) {
@@ -297,17 +299,15 @@ async function run() {
 
       const values = await get_values(c, table_name, col)
       const udt_name = handle_udt_name(col.typname)
+      var final_type = values || udt_name
+      if (!col.attnotnull)
+        final_type += ' | null'
+
       const custom_type = !values && !udt_name.match(/^(string|number|boolean|Json)(\[\])?$/) && !udt_name.includes('|')
       out.write(`  ${!custom_type ? '@a' : `@aa(${udt_name.replace('[]', '')})`} ${colname}: `)
-      if (values) {
-        out.write(values)
-      } else {
-        out.write(udt_name)
-      }
 
-      if (!col.attnotnull) {
-        out.write(' | null')
-      }
+      out.write(final_type)
+
       if (col.default) {
         out.write(` = ${handle_default_value(col.default)}`)
       } else if (!col.attnotnull) {
@@ -319,8 +319,16 @@ async function run() {
       } else {
         out.write(` = undefined!`)
       }
+      create_def.push(`${colname}${col.default || !col.attnotnull ? '?' : ''}: ${final_type}`)
       out.write('\n')
     }
+    // log(create_def.join(', '))
+    out.write(`\n  static async createInDb(defs: {${create_def.join(', ')}}) {
+    const val = new this()
+    Object.assign(val, {}, defs)
+    return await val.save()
+  }`)
+
     out.write(`\n  /** !impl ${camelcase(table_name)} **/\n`)
     out.write(impl_blocks[camelcase(table_name)] || `    // extend this class here\n`)
     out.write(`\n  /** !end impl **/\n`)

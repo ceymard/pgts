@@ -22,7 +22,6 @@ export interface ModelMaker<T extends Model> {
 
 
 export function GET(url: string) {
-  /** !impl GET **/
   return fetch(url, {
     method: 'GET',
     headers: {
@@ -35,12 +34,26 @@ export function GET(url: string) {
   	  return Promise.reject(res)
   	return res.json()
   })
-  /** !end impl **/
+}
+
+export function DELETE(url: string) {
+  return fetch(url, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    credentials: 'include'
+  }).then(res => {
+  	if (res.status < 200 || res.status >= 400)
+  	  return Promise.reject(res)
+  	return res.text() as any
+  })
 }
 
 
+
 export async function POST(url: string, body: any = {}): Promise<any> {
-  /** !impl POST **/
   return fetch(url, {
     method: 'POST',
     headers: {
@@ -54,7 +67,6 @@ export async function POST(url: string, body: any = {}): Promise<any> {
       return Promise.reject(res)
     return res.json()
   })
-  /** !end impl **/
 }
 
 export class Model {
@@ -78,6 +90,34 @@ export class Model {
     // return result
   }
 
+  static async remove<T extends Model>(this: ModelMaker<T>, supl: string) {
+    if (!supl)
+      throw new Error('suppl cannot be empty')
+    if (supl[0] !== '?') supl = '?' + supl
+    const res = await DELETE(this.url + supl)
+    return res
+  }
+
+  static async saveMany<T extends Model>(this: ModelMaker<T>, models: T[]) {
+    if (!models.length) return []
+
+    const heads = new Headers({
+      Accept: 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+      'Content-Type': 'application/json'
+    })
+    heads.append('Prefer', 'return=representation')
+
+    const res = await fetch(this.url, {
+      method: 'POST',
+      headers: heads,
+      credentials: 'include',
+      body: JSON.stringify(models.map(m => Serialize(m)))
+    })
+
+    return Deserialize((await res.json()), this) as T[]
+  }
+
   async save(): Promise<this> {
     const heads = new Headers({
       Accept: 'application/json',
@@ -96,10 +136,7 @@ export class Model {
       return Promise.reject(res)
 
     const payload = (await res.json())[0]
-    const n = new (this.constructor as any)()
-    for (var x in payload) {
-      n[x] = (payload as any)[x]
-    }
+    const n = Deserialize(payload, this.constructor)
     return n
   }
 
