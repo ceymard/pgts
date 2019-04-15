@@ -3,7 +3,7 @@ import { inspect } from 'util'
 import * as path from 'path'
 import * as fs from 'fs'
 
-const DB = 'postgres://administrator:admin@1812-intra_postgres_1.docker/app'
+const DB = 'postgres://administrator:admin@1812-salesway-intra_postgres_1.docker/app'
 const SCHEMA = 'api'
 
 
@@ -191,7 +191,7 @@ function handle_udt_name(s: string, col?: ColumnResult) {
 
 function handle_default_value(s: string) {
   var m: RegExpExecArray | null
-  if (m = /'(.*)'::json/.exec(s) || /(.*)::text$/.exec(s)) {
+  if (m = /'(.*)'::jsonb?/.exec(s) || /(.*)::text$/.exec(s)) {
     return m[1]
   }
   if (m = /'\{\}'::text\[\]/.exec(s)) {
@@ -215,16 +215,16 @@ async function run() {
   const contents = fs.readFileSync(file, 'utf-8')
   // console.log(contents)
 
-  const re_impl_blocks = /!impl ([^\s*]+)\s*\*\*\/\s*\n((.|\n)*?)\n\s*\/\*\*\s*!end impl/img
+  const re_impl_blocks = /!impl ([^\s*]+)\s*\*\*\/\s*\n((.|\n)*?)\/\*\*\s*!end impl/img
 
   const impl_blocks: {[name: string]: string} = {}
   var match: RegExpMatchArray | null
   while (match = re_impl_blocks.exec(contents)) {
     impl_blocks[match[1]] = match[2] + '\n'
   }
+  // console.log(impl_blocks)
 
   const c = new Client(DB)
-  // console.log('wha')
   await c.connect()
 
   await c.query(`SET SCHEMA '${SCHEMA}'`)
@@ -256,20 +256,11 @@ async function run() {
 
   const typrows = types.rows as {type: PgType, comment: string | null, attributes: (PgType & PgAttribute & {comment: string | null, default: string | null})[]}[]
 
-  // log(typrows.map(r => {return {
-  //   name: r.type.typname,
-  //   kind: r.type.typrelid,
-  //   comment: r.comment,
-  //   attrs: r.attributes.map(a => { return { name: a.attname, comment: a.comment, type: a.typname, def: a.default } })
-  // }}))
-
-  // process.exit(0)
-
   const out = fs.createWriteStream(file, 'utf-8')
-
 
   out.write(fs.readFileSync(path.join(__dirname, '../src/prelude.ts'), 'utf-8')
     .replace(re_impl_blocks, (match, name, contents) => {
+      // console.log(name)
       if (impl_blocks[name])
         return match.replace(contents, impl_blocks[name])
       return match
@@ -325,8 +316,14 @@ async function run() {
     // log(create_def.join(', '))
     out.write(`\n  static async createInDb(defs: {${create_def.join(', ')}}) {
     const val = new this()
-    Object.assign(val, {}, defs)
+    Object.assign(val, defs)
     return await val.save()
+  }`)
+
+    out.write(`\n\n  static create(defs: {${create_def.join(', ')}}) {
+    const val = new this()
+    Object.assign(val, defs)
+    return val
   }`)
 
     out.write(`\n  /** !impl ${camelcase(table_name)} **/\n`)
@@ -346,9 +343,9 @@ async function run() {
     FROM pg_namespace name
     INNER JOIN pg_proc pro
       ON pro.pronamespace = name.oid
-      LEFT JOIN unnest(COALESCE(pro.proallargtypes, pro.proargtypes)) WITH ORDINALITY as u(type_oid, ordinality) ON true
-      LEFT JOIN pg_type typ ON typ.oid = type_oid
-      INNER JOIN pg_type typ2 ON typ2.oid = pro.prorettype
+    LEFT JOIN unnest(COALESCE(pro.proallargtypes, pro.proargtypes)) WITH ORDINALITY as u(type_oid, ordinality) ON true
+    LEFT JOIN pg_type typ ON typ.oid = type_oid
+    INNER JOIN pg_type typ2 ON typ2.oid = pro.prorettype
     WHERE name.nspname = $1 AND typ2.typname <> 'trigger'
     GROUP BY pro.proname, pro.proargmodes, pro.proargnames, typ2.typname, typ2.typrelid
   `, [SCHEMA])
@@ -369,22 +366,30 @@ async function run() {
 
     if (therow.rettype === 'record') {
       // Find first argument which is table
-      var idx = therow.arg_modes.indexOf('t')
-      var resargs = args.slice(idx)
-      var resnames = names.slice(idx)
-      var notnulls = notnulls.slice(idx)
-      args = args.slice(0, idx)
-      names = names.slice(0, idx)
-      result = `{${resargs.map((t, i) => `${resnames[i]}: ${t}${!notnulls[i] ? ' | null' : ''}`).join(', ')}}[]`
+      if (!therow.arg_modes) {
+        result = 'any[]'
+      } else {
+        var idx = therow.arg_modes.indexOf('t')
+        var resargs = args.slice(idx)
+        var resnames = names.slice(idx)
+        var notnulls = notnulls.slice(idx)
+        args = args.slice(0, idx)
+        names = names.slice(0, idx)
+        result = `{${resargs.map((t, i) => `${resnames[i]}: ${t}${!notnulls[i] ? ' | null' : ''}`).join(', ')}}[]`
+      }
     }
 
     var final_args = args.map((a, i) => `${names[i]}: ${a}`).join(', ')
     // out.write(therow.name, final_args, result)
 
     out.write(`export function ${therow.name}(${final_args}): Promise<${result}> {\n`)
-    out.write(`  /** !impl ${therow.name}**/\n`)
-    out.write(impl_blocks[therow.name] || `  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[]).join(', ')}}))\n`)
-    out.write(`  /** !end impl **/\n`)
+    // out.write(`  /** !impl ${therow.name}**/\n`)
+    out.write(`  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[]).join(', ')}}))\n`)
+    // console.error(result)
+    if (result !== 'Json' && result !== 'Jsonb' && result.match(/[A-Z]/)) {
+      out.write(`    .then(v => Deserialize(v, ${result.replace('[]', '')}))`)
+    }
+    // out.write(`  /** !end impl **/\n`)
     out.write('\n}\n\n')
   }
 
