@@ -148,7 +148,7 @@ async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
     return null
 
   // log(real_res)
-  if (real_res.table_name === table) {
+  if (real_res.table_name === table && real_res.column_name === col.attname) {
     return handle_udt_name(real_res.foreign_table_name) + `['${real_res.foreign_column_name}']`
   }
 
@@ -215,7 +215,7 @@ async function run() {
   const contents = fs.readFileSync(file, 'utf-8')
   // console.log(contents)
 
-  const re_impl_blocks = /!impl ([^\s*]+)\s*\*\*\/\s*\n((.|\n)*?)\/\*\*\s*!end impl/img
+  const re_impl_blocks = /!impl ([^\s*]+)\s*\*\*\/\s*\n((.|\n)*?)(?:\s|\n)*\/\*\*\s*!end impl/img
 
   const impl_blocks: {[name: string]: string} = {}
   var match: RegExpMatchArray | null
