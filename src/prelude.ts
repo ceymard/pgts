@@ -12,6 +12,23 @@ import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize } fro
  * BEWARE THAT CODE MAY DISAPPEAR IF THE CORRESPONDING TABLE CHANGES ITS NAME
  */
 
+/**
+ * Convert the dates to and from UTC time since postgres is generally using UTC internally.
+ */
+export const UTCDateSerializer = {
+  Serialize(date: any): any {
+    if (date == null) return null
+    date = new Date(date)
+    const d = new Date(date.valueOf() - date.getTimezoneOffset() * 60000).toJSON()
+    return d
+  },
+  Deserialize(date: any) {
+    if (date == null) return null
+    const d = new Date(date)
+    return new Date(d.valueOf() - d.getTimezoneOffset() * 60000)
+  }
+}
+
 export interface Json {
 	[x: string]: string | number | boolean | Date | Json | JsonArray;
 }

@@ -105,7 +105,7 @@ async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
   if (col.typname !== 'text')
     return null
 
-  const res = /* sql */ await c.query(`SELECT
+  const res =  await c.query(/* sql */ `SELECT
     tc.table_schema,
     tc.constraint_name,
     tc.table_name,
@@ -178,7 +178,7 @@ function handle_udt_name(s: string, col?: ColumnResult) {
   else if (s === 'text' || s === 'name') {
     type = 'string'
   } else if (s === 'date' || s === 'timestamp')
-    type = 'Date | string'
+    type = 'Date'
   else if (s === 'bool')
     type = 'boolean'
   else if (s === 'void')
@@ -295,7 +295,10 @@ async function run() {
         final_type += ' | null'
 
       const custom_type = !values && !udt_name.match(/^(string|number|boolean|Json)(\[\])?$/) && !udt_name.includes('|')
-      out.write(`  ${!custom_type ? '@a' : `@aa(${udt_name.replace('[]', '')})`} ${colname}: `)
+      // console.warn(colname, custom_type, col.typname)
+      out.write(`  ${!custom_type ? '@a' :
+        col.typname === 'date' || col.typname === 'timestamp' ? `@aa(UTCDateSerializer)` :
+        `@aa(${udt_name.replace('[]', '')})`} ${colname}: `)
 
       out.write(final_type)
 
@@ -354,6 +357,7 @@ async function run() {
 
   for (var f2 of functions_new.rows) {
     const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, relid: number, args: {type: string, notnull: boolean}[]}
+    var orig_args = therow.args.map(a => a.type)
     var args = therow.args.map(a => handle_udt_name(a.type))
     var notnulls = therow.args.map(a => !!a.notnull)
     var names = therow.arg_names
@@ -373,6 +377,7 @@ async function run() {
         var resargs = args.slice(idx)
         var resnames = names.slice(idx)
         var notnulls = notnulls.slice(idx)
+        orig_args = orig_args.slice(idx)
         args = args.slice(0, idx)
         names = names.slice(0, idx)
         result = `{${resargs.map((t, i) => `${resnames[i]}: ${t}${!notnulls[i] ? ' | null' : ''}`).join(', ')}}[]`
@@ -384,7 +389,10 @@ async function run() {
 
     out.write(`export function ${therow.name}(${final_args}): Promise<${result}> {\n`)
     // out.write(`  /** !impl ${therow.name}**/\n`)
-    out.write(`  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[]).join(', ')}}))\n`)
+    out.write(`  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[])
+      .map((n, i) =>
+        orig_args[i] === 'date' || orig_args[i] === 'timestamp' ? `${n}: UTCDateSerializer.Serialize(${n})` : n)
+      .join(', ')}}))\n`)
     // console.error(result)
     if (result !== 'Json' && result !== 'Jsonb' && result.match(/[A-Z]/)) {
       out.write(`    .then(v => Deserialize(v, ${result.replace('[]', '')}))`)
