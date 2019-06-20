@@ -23,9 +23,10 @@ export const UTCDateSerializer = {
     return d
   },
   Deserialize(date: any) {
+    if (date instanceof Date) return date
     if (date == null) return null
     const d = new Date(date)
-    return new Date(d.valueOf() - d.getTimezoneOffset() * 60000)
+    return new Date(d.valueOf() + d.getTimezoneOffset() * 60000)
   }
 }
 
