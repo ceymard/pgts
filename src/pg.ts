@@ -3,8 +3,9 @@ import { inspect } from 'util'
 import * as path from 'path'
 import * as fs from 'fs'
 
-const DB = 'postgres://administrator:admin@1812-salesway-intra_postgres_1.docker/app'
-const SCHEMA = 'api'
+const DB = process.argv[2]
+if (!DB) throw new Error(`Please give database`)
+const SCHEMA = 'public'
 
 
 export function log(m: any) {
@@ -177,7 +178,7 @@ function handle_udt_name(s: string, col?: ColumnResult) {
     type = 'number'
   else if (s === 'text' || s === 'name') {
     type = 'string'
-  } else if (s === 'date' || s === 'timestamp')
+  } else if (s === 'date' || s === 'timestamp' || s === 'timestamptz')
     type = 'Date'
   else if (s === 'bool')
     type = 'boolean'
@@ -208,11 +209,16 @@ export function udt(name: string) {
 
 async function run() {
 
-  const file = process.argv[2]
+  const file = process.argv[3]
   if (!file)
     throw new Error('Please give a filename')
 
-  const contents = fs.readFileSync(file, 'utf-8')
+  var contents: string
+  try {
+    contents = fs.readFileSync(file, 'utf-8')
+  } catch (e) {
+    contents = ''
+  }
   // console.log(contents)
 
   const re_impl_blocks = /!impl ([^\s*]+)\s*\*\*\/\s*\n((.|\n)*?)(?:\s|\n)*\/\*\*\s*!end impl/img
@@ -236,7 +242,7 @@ async function run() {
       row_to_json(typ) as "type",
       d.description as comment,
       (SELECT json_agg(att ORDER BY att.attnum) FROM
-        (SELECT att.*, typ2.*, d2.description as comment, de.adsrc as default FROM pg_attribute att
+        (SELECT att.*, typ2.*, d2.description as comment, pg_get_expr(de.adbin, de.adrelid) as default FROM pg_attribute att
           INNER JOIN pg_type typ2 ON typ2.oid = att.atttypid
           LEFT JOIN pg_description d2 ON
             d2.objoid = typ.typname::regclass::oid AND d2.objsubid = att.attnum
@@ -294,13 +300,14 @@ async function run() {
       if (!col.attnotnull)
         final_type += ' | null'
 
-      const custom_type = !values && !udt_name.match(/^(string|number|boolean|Json)(\[\])?$/) && !udt_name.includes('|')
+      const custom_type = !values && !udt_name.match(/^(string|number|boolean|Jsonb?)(\[\])?$/) && !udt_name.includes('|')
       // console.warn(colname, custom_type, col.typname)
       out.write(`  ${!custom_type ? '@a' :
-        col.typname === 'date' || col.typname === 'timestamp' ? `@aa(UTCDateSerializer)` :
+        col.typname === 'date' || col.typname === 'timestamp' || col.typname === 'timestamptz' ? `@aa(UTCDateSerializer)` :
         `@aa(${udt_name.replace('[]', '')})`} ${colname}: `)
 
       out.write(final_type)
+      // out.write(` // ${col.typname}`)
 
       if (col.default) {
         out.write(` = ${handle_default_value(col.default)}`)
@@ -391,10 +398,10 @@ async function run() {
     // out.write(`  /** !impl ${therow.name}**/\n`)
     out.write(`  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[])
       .map((n, i) =>
-        orig_args[i] === 'date' || orig_args[i] === 'timestamp' ? `${n}: UTCDateSerializer.Serialize(${n})` : n)
+        orig_args[i] === 'date' || orig_args[i] === 'timestamp' || orig_args[i] === 'timestamptz' ? `${n}: UTCDateSerializer.Serialize(${n})` : n)
       .join(', ')}}))\n`)
     // console.error(result)
-    if (result !== 'Json' && result !== 'Jsonb' && result.match(/[A-Z]/)) {
+    if (result !== 'Json' && result !== 'Jsonb' && result.match(/[A-Z]/) && !result.match(/\|/)) {
       out.write(`    .then(v => Deserialize(v, ${result.replace('[]', '')}))`)
     }
     // out.write(`  /** !end impl **/\n`)
