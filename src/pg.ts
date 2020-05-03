@@ -5,7 +5,7 @@ import * as fs from 'fs'
 
 const DB = process.argv[2]
 if (!DB) throw new Error(`Please give database`)
-const SCHEMA = 'public'
+const SCHEMA = process.argv[4] ?? 'public'
 
 
 export function log(m: any) {
