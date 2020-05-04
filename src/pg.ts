@@ -302,9 +302,10 @@ async function run() {
 
       const custom_type = !values && !udt_name.match(/^(string|number|boolean|Jsonb?)(\[\])?$/) && !udt_name.includes('|')
       // console.warn(colname, custom_type, col.typname)
+      // console.log(colname)
       out.write(`  ${!custom_type ? '@a' :
         col.typname === 'date' || col.typname === 'timestamp' || col.typname === 'timestamptz' ? `@aa(UTCDateSerializer)` :
-        `@aa(${udt_name.replace('[]', '')})`} ${colname}: `)
+        `@aa(${udt_name.replace('[]', '')})`} ${colname.match(/\s+/) ? `"${colname}"` : colname}: `)
 
       out.write(final_type)
       // out.write(` // ${col.typname}`)
