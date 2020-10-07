@@ -12,6 +12,23 @@ import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize } fro
  * BEWARE THAT CODE MAY DISAPPEAR IF THE CORRESPONDING TABLE CHANGES ITS NAME
  */
 
+export const HstoreSerializer = {
+  Serialize(hstore: Map<string, string>) {
+    var res: any = {}
+    for (var [key, obj] of hstore) {
+      res[key] = obj
+    }
+    return res
+  },
+  Deserialize(json: any) {
+    var res = new Map<string, string>()
+    for (var key in json) {
+      res.set(key, json[key])
+    }
+    return res
+  }
+}
+
 /**
  * Convert the dates to and from UTC time since postgres is generally using UTC internally.
  */

@@ -144,13 +144,14 @@ async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
     foreign_table_schema: string
     foreign_column_name: string
   }
+  // console.log(table, col.attname, col)
 
   if (!real_res)
     return null
 
   // log(real_res)
   if (real_res.table_name === table && real_res.column_name === col.attname) {
-    return handle_udt_name(real_res.foreign_table_name) + `['${real_res.foreign_column_name}']`
+    return handle_udt_name(real_res.foreign_table_name)[0] + `['${real_res.foreign_column_name}']`
   }
 
   const values = await c.query(`SELECT distinct "${real_res.foreign_column_name}" as val
@@ -165,28 +166,37 @@ async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
 
 }
 
+export const type_maps = new Map<string, [string, string]>()
+  .set('date', ['Date', 'UTCDateSerializer'])
+  .set('timestamp', ['Date', 'UTCDateSerializer'])
+  .set('timestampz', ['Date', 'UTCDateSerializer'])
+  .set('hstore', ['Map<string, string>', 'HstoreSerializer'])
 
 
-function handle_udt_name(s: string, col?: ColumnResult) {
+function handle_udt_name(s: string, col?: ColumnResult): [string, string] {
   // log(s)
   var arr = (s[0] === '_')
-  if (arr)
+  var arrsuffix = ''
+  if (arr) {
+    arrsuffix = '[]' // FIXME should get dimensions
     s = s.slice(1)
-  var type = s
+  }
+  var type = s.toLowerCase()
 
   if (s.match(/^(int|float)\d+$/))
     type = 'number'
-  else if (s === 'text' || s === 'name') {
+  else if (s === 'text' || s === 'name')
     type = 'string'
-  } else if (s === 'date' || s === 'timestamp' || s === 'timestamptz')
-    type = 'Date'
   else if (s === 'bool')
     type = 'boolean'
   else if (s === 'void')
     type = 'void'
-  else
+  else if (type_maps.has(s)) {
+    const [typ, ser] = type_maps.get(s)!
+    return [typ + arrsuffix, ser]
+  } else
     type = camelcase(s)
-  return type + (arr ? '[]' : '')
+  return [type + (arr ? '[]' : ''), type]
 }
 
 
@@ -199,11 +209,6 @@ function handle_default_value(s: string) {
     return '[]'
   }
   return `undefined! // ${s}`
-}
-
-
-export function udt(name: string) {
-  return handle_udt_name(name).replace(/^./, m => m.toUpperCase())
 }
 
 
@@ -262,7 +267,7 @@ async function run() {
 
   const typrows = types.rows as {type: PgType, comment: string | null, attributes: (PgType & PgAttribute & {comment: string | null, default: string | null})[]}[]
 
-  const out = fs.createWriteStream(file, 'utf-8')
+  const out = file === '-' ? process.stdout as unknown as fs.WriteStream : fs.createWriteStream(file, 'utf-8')
 
   out.write(fs.readFileSync(path.join(__dirname, '../src/prelude.ts'), 'utf-8')
     .replace(re_impl_blocks, (match, name, contents) => {
@@ -286,7 +291,7 @@ async function run() {
 
     var create_def = [] as string[]
     for (var col of r.attributes) {
-      const colname = col.attname
+      const colname = col.attname.match(/\s+/) ? `"${col.attname}"` : col.attname
       if (col.comment) {
         out.write(`  /**\n`)
         out.write(col.comment.split('\n').map(c => `   * ${c}`).join('\n'))
@@ -295,8 +300,8 @@ async function run() {
       // out.write(col.udt_name)
 
       const values = await get_values(c, table_name, col)
-      const udt_name = handle_udt_name(col.typname)
-      var final_type = values || udt_name
+      const [udt_name, serial] = handle_udt_name(col.typname)
+      var final_type = values ?? udt_name
       if (!col.attnotnull)
         final_type += ' | null'
 
@@ -305,7 +310,7 @@ async function run() {
       // console.log(colname)
       out.write(`  ${!custom_type ? '@a' :
         col.typname === 'date' || col.typname === 'timestamp' || col.typname === 'timestamptz' ? `@aa(UTCDateSerializer)` :
-        `@aa(${udt_name.replace('[]', '')})`} ${colname.match(/\s+/) ? `"${colname}"` : colname}: `)
+        `@aa(${serial})`} ${colname}: `)
 
       out.write(final_type)
       // out.write(` // ${col.typname}`)
@@ -369,7 +374,7 @@ async function run() {
     var args = therow.args.map(a => handle_udt_name(a.type))
     var notnulls = therow.args.map(a => !!a.notnull)
     var names = therow.arg_names
-    var result = handle_udt_name(therow.rettype)
+    var [result, serial] = handle_udt_name(therow.rettype)
 
     // If we have a relid, it means this function is returning a table row type
     // Postgrest seems to think this means we will return an array.
@@ -392,7 +397,7 @@ async function run() {
       }
     }
 
-    var final_args = args.map((a, i) => `${names[i]}: ${a}`).join(', ')
+    var final_args = args.map((a, i) => `${names[i]}: ${a[0]}`).join(', ')
     // out.write(therow.name, final_args, result)
 
     out.write(`export function ${therow.name}(${final_args}): Promise<${result}> {\n`)
@@ -403,7 +408,7 @@ async function run() {
       .join(', ')}}))\n`)
     // console.error(result)
     if (result !== 'Json' && result !== 'Jsonb' && result.match(/[A-Z]/) && !result.match(/\|/)) {
-      out.write(`    .then(v => Deserialize(v, ${result.replace('[]', '')}))`)
+      out.write(`    .then(v => Deserialize(v, ${serial}))`)
     }
     // out.write(`  /** !end impl **/\n`)
     out.write('\n}\n\n')

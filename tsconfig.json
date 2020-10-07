@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es5",
+    "target": "es6",
     "module": "commonjs",
     "moduleResolution": "node",
     "declaration": true,
@@ -10,6 +10,7 @@
     "outDir": "lib",
     "rootDir": "src",
     "experimentalDecorators": true,
+    "downlevelIteration": true,
     "jsx": "react",
     "reactNamespace": "E",
     "resolveJsonModule": true,
