@@ -152,14 +152,14 @@ export class Model {
     return Deserialize((await res.json()), this) as T[]
   }
 
-  async save(): Promise<this> {
+  async save(keys?: (keyof this)[]): Promise<this> {
     const heads = new Headers({
       Accept: 'application/json',
       Prefer: 'resolution=merge-duplicates',
       'Content-Type': 'application/json'
     })
     heads.append('Prefer', 'return=representation')
-    const res = await FETCH((this.constructor as any).url, {
+    const res = await FETCH((this.constructor as any).url + (keys && keys.length > 0 ? `?columns=${keys.join(',')}` : ''), {
       method: 'POST',
       headers: heads,
       credentials: 'include',
