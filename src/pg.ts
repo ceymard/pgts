@@ -247,12 +247,14 @@ async function run() {
       row_to_json(typ) as "type",
       d.description as comment,
       (SELECT json_agg(att ORDER BY att.attnum) FROM
-        (SELECT att.*, typ2.*, d2.description as comment, pg_get_expr(de.adbin, de.adrelid) as default FROM pg_attribute att
+        (SELECT att.*, typ2.*, d2.description as comment, pg_get_expr(de.adbin, de.adrelid) as default, id.indisprimary as is_primary FROM pg_attribute att
           INNER JOIN pg_type typ2 ON typ2.oid = att.atttypid
           LEFT JOIN pg_description d2 ON
             d2.objoid = typ.typname::regclass::oid AND d2.objsubid = att.attnum
           LEFT JOIN pg_attrdef de ON
             de.adrelid = typ.typname::regclass::oid AND de.adnum = att.attnum
+          LEFT JOIN pg_index id ON
+            id.indrelid = att.attrelid AND att.attnum = any (id.indkey)
         WHERE att.attrelid = typ.typname::regclass::oid
           AND att.attname NOT IN ('tableoid', 'cmax', 'xmax', 'cmin', 'xmin', 'ctid')
         ) att
@@ -265,7 +267,7 @@ async function run() {
     ORDER BY typ.oid
   `, [SCHEMA])
 
-  const typrows = types.rows as {type: PgType, comment: string | null, attributes: (PgType & PgAttribute & {comment: string | null, default: string | null})[]}[]
+  const typrows = types.rows as {type: PgType, comment: string | null, attributes: (PgType & PgAttribute & {comment: string | null, default: string | null, is_primary: boolean | null})[]}[]
 
   const out = file === '-' ? process.stdout as unknown as fs.WriteStream : fs.createWriteStream(file, 'utf-8')
 
@@ -288,6 +290,11 @@ async function run() {
     out.write(camelcase(table_name))
     out.write(' extends Model {\n')
     out.write(`  static url = '/pg/${table_name}'\n`)
+
+    const indices = r.attributes.filter(a => a.is_primary).map(a => a.attname)
+    if (indices.length > 0) {
+      out.write(`  static pk = [${indices.map(i => `'${i}'`).join(', ')}]\n`)
+    }
 
     var create_def = [] as string[]
     for (var col of r.attributes) {

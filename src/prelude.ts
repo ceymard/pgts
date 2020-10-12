@@ -14,11 +14,11 @@ import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize } fro
 
 export const HstoreSerializer = {
   Serialize(hstore: Map<string, string>) {
-    var res: any = {}
+    var res: string[] = []
     for (var [key, obj] of hstore) {
-      res[key] = obj
+      res.push(`${key} => ${obj}`)
     }
-    return res
+    return res.join(', ')
   },
   Deserialize(json: any) {
     var res = new Map<string, string>()
@@ -115,8 +115,10 @@ export async function POST(url: string, body: any = {}): Promise<any> {
   })
 }
 
+
 export class Model {
   static url = ''
+  static pk: string[] = []
 
   static async get<T extends Model>(this: ModelMaker<T>, supl: string = ''): Promise<T[]> {
     // const ret = this as any as (new () => T)
@@ -161,6 +163,26 @@ export class Model {
     heads.append('Prefer', 'return=representation')
     const res = await FETCH((this.constructor as any).url + (keys && keys.length > 0 ? `?columns=${keys.join(',')}` : ''), {
       method: 'POST',
+      headers: heads,
+      credentials: 'include',
+      body: JSON.stringify(Serialize(this))
+    })
+
+    const payload = (await res.json())[0]
+    const n = Deserialize(payload, this.constructor)
+    return n
+  }
+
+  async update(...keys: (keyof this)[]): Promise<this> {
+    const heads = new Headers({
+      Accept: 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+      'Content-Type': 'application/json'
+    })
+    heads.append('Prefer', 'return=representation')
+    var _pk = ((this.constructor as any).pk as string[]).map(p => `${p}=eq.${(this as any)[p]}`).join('&')
+    const res = await FETCH((this.constructor as any).url + '?' + _pk + (keys && keys.length > 0 ? `&columns=${keys.join(',')}` : ''), {
+      method: 'PATCH',
       headers: heads,
       credentials: 'include',
       body: JSON.stringify(Serialize(this))
