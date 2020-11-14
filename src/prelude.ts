@@ -35,15 +35,12 @@ export const HstoreSerializer = {
 export const UTCDateSerializer = {
   Serialize(date: any): any {
     if (date == null) return null
-    date = new Date(date)
-    const d = new Date(date.valueOf() - date.getTimezoneOffset() * 60000).toJSON()
-    return d
+    return new Date(date)
   },
   Deserialize(date: any) {
     if (date instanceof Date) return date
     if (date == null) return null
-    const d = new Date(date)
-    return new Date(d.valueOf() + d.getTimezoneOffset() * 60000)
+    return new Date(date)
   }
 }
 
@@ -154,15 +151,15 @@ export class Model {
     return Deserialize((await res.json()), this) as T[]
   }
 
-  async save(keys?: (keyof this)[]): Promise<this> {
+  protected async doSave(url: string, method: string): Promise<this> {
     const heads = new Headers({
       Accept: 'application/json',
       Prefer: 'resolution=merge-duplicates',
       'Content-Type': 'application/json'
     })
     heads.append('Prefer', 'return=representation')
-    const res = await FETCH((this.constructor as any).url + (keys && keys.length > 0 ? `?columns=${keys.join(',')}` : ''), {
-      method: 'POST',
+    const res = await FETCH(url, {
+      method: method,
       headers: heads,
       credentials: 'include',
       body: JSON.stringify(Serialize(this))
@@ -171,26 +168,32 @@ export class Model {
     const payload = (await res.json())[0]
     const n = Deserialize(payload, this.constructor)
     return n
+
   }
 
-  async update(...keys: (keyof this)[]): Promise<this> {
-    const heads = new Headers({
-      Accept: 'application/json',
-      Prefer: 'resolution=merge-duplicates',
-      'Content-Type': 'application/json'
-    })
-    heads.append('Prefer', 'return=representation')
-    var _pk = ((this.constructor as any).pk as string[]).map(p => `${p}=eq.${(this as any)[p]}`).join('&')
-    const res = await FETCH((this.constructor as any).url + '?' + _pk + (keys && keys.length > 0 ? `&columns=${keys.join(',')}` : ''), {
-      method: 'PATCH',
-      headers: heads,
-      credentials: 'include',
-      body: JSON.stringify(Serialize(this))
-    })
+  /**
+   * Save upserts the record.
+   */
+  async save() {
+    return this.doSave((this.constructor as any).url, 'POST')
+  }
 
-    const payload = (await res.json())[0]
-    const n = Deserialize(payload, this.constructor)
-    return n
+  /**
+   * Update just updates the record.
+   */
+  async update(...keys: (keyof this)[]): Promise<this> {
+    const parts: string[] = []
+    const cst = (this.constructor as any)
+    if (cst.pk) {
+      for (var pk of cst.pk) {
+        parts.push(`${pk}=eq.${(this as any)[pk]}`)
+      }
+    }
+    if (keys.length) {
+      parts.push(`columns=${keys.join(',')}`)
+    }
+
+    return this.doSave(cst.url + (parts.length ? `?${parts.join('&')}` : ''), 'PATCH')
   }
 
   /** !impl Model **/
