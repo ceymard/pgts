@@ -191,6 +191,8 @@ function handle_udt_name(s: string, col?: ColumnResult): [string, string] {
     type = 'boolean'
   else if (s === 'void')
     type = 'void'
+  // else if (s === 'json' || s === 'jsonb')
+  //   type = 'any'
   else if (type_maps.has(s)) {
     const [typ, ser] = type_maps.get(s)!
     return [typ + arrsuffix, ser]
@@ -400,7 +402,8 @@ async function run() {
         orig_args = orig_args.slice(idx)
         args = args.slice(0, idx)
         names = names.slice(0, idx)
-        result = `{${resargs.map((t, i) => `${resnames[i]}: ${t}${!notnulls[i] ? ' | null' : ''}`).join(', ')}}[]`
+        // out.write('---' + JSON.stringify({names: resnames, args: resargs}))
+        result = `{${resargs.map((t, i) => `${resnames[i]}: ${t[0]}${!notnulls[i] ? ' | null' : ''}`).join(', ')}}[]`
       }
     }
 

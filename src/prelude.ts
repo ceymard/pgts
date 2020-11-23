@@ -44,12 +44,8 @@ export const UTCDateSerializer = {
   }
 }
 
-export interface Json {
-	[x: string]: string | number | boolean | Date | Json | JsonArray;
-}
+export type Json = any
 export type Jsonb = Json
-
-export interface JsonArray extends Array<string | number | boolean | Date | Json | JsonArray> { }
 
 
 export interface ModelMaker<T extends Model> {
@@ -195,6 +191,21 @@ export class Model {
 
     return this.doSave(cst.url + (parts.length ? `?${parts.join('&')}` : ''), 'PATCH')
   }
+
+  async delete(): Promise<Response> {
+    const cst = (this.constructor as any)
+    if (!cst.pk) {
+      throw new Error(`can't instance-delete an item without primary key`)
+    }
+    const parts: string[] = []
+    for (var pk of cst.pk) {
+      parts.push(`${pk}=eq.${(this as any)[pk]}`)
+    }
+    return FETCH(`${cst.url}?${parts.join('&')}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+}
 
   /** !impl Model **/
   // Add methods to model here
