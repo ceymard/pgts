@@ -299,7 +299,10 @@ async function run() {
     }
 
     var create_def = [] as string[]
+    let seen = new Set<string>()
     for (var col of r.attributes) {
+      if (seen.has(col.attname)) continue
+      seen.add(col.attname)
       const colname = col.attname.match(/\s+/) ? `"${col.attname}"` : col.attname
       if (col.comment) {
         out.write(`  /**\n`)
