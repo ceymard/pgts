@@ -35,7 +35,7 @@ export const HstoreSerializer = {
 export const UTCDateSerializer = {
   Serialize(date: any): any {
     if (date == null) return null
-    return new Date(date)
+    return new Date(date).toJSON()
   },
   Deserialize(date: any) {
     if (date instanceof Date) return date
