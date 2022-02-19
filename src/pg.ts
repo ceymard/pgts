@@ -101,12 +101,16 @@ function camelcase(s: string) {
   return s[0].toUpperCase() + s.slice(1).replace(/_([\w])/g, (match, l) => l.toUpperCase())
 }
 
+async function query(c: Client, sql: string, values?: any[]) {
+  // console.error(sql, values)
+  return c.query(sql, values)
+}
 
 async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
   if (col.typname !== 'text')
     return null
 
-  const res =  await c.query(/* sql */ `SELECT
+  const res =  await query(c, /* sql */ `SELECT
     tc.table_schema,
     tc.constraint_name,
     tc.table_name,
@@ -154,7 +158,7 @@ async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
     return handle_udt_name(real_res.foreign_table_name)[0] + `['${real_res.foreign_column_name}']`
   }
 
-  const values = await c.query(`SELECT distinct "${real_res.foreign_column_name}" as val
+  const values = await query(c, /* sql */`SELECT distinct "${real_res.foreign_column_name}" as val
     FROM "${real_res.foreign_table_schema}"."${real_res.foreign_table_name}"
     ORDER BY val
   `)
@@ -203,12 +207,16 @@ function handle_udt_name(s: string, col?: ColumnResult): [string, string] {
 
 
 function handle_default_value(s: string) {
+  // console.log(s)
   var m: RegExpExecArray | null
   if (m = /'(.*)'::jsonb?/.exec(s) || /(.*)::text$/.exec(s)) {
     return m[1]
   }
   if (m = /'\{\}'::text\[\]/.exec(s)) {
     return '[]'
+  }
+  if (m = /'(.*)'::(.*)\.hstore/.exec(s)) {
+    return "new Map()"
   }
   return `undefined! // ${s}`
 }
@@ -240,11 +248,11 @@ async function run() {
   const c = new Client(DB)
   await c.connect()
 
-  await c.query(`SET SCHEMA '${SCHEMA}'`)
+  await query(c, `SET SCHEMA '${SCHEMA}'`)
 
   // console.log('connected')
 
-  const types = await c.query(/* sql */ `
+  const types = await query(c, /* sql */ `
     SELECT
       row_to_json(typ) as "type",
       d.description as comment,
@@ -291,6 +299,7 @@ async function run() {
     out.write('export class ')
     out.write(camelcase(table_name))
     out.write(' extends Model {\n')
+    out.write(`  get [Cons]() { return ${camelcase(table_name)} }\n`)
     out.write(`  static url = '/pg/${table_name}'\n`)
 
     const indices = r.attributes.filter(a => a.is_primary).map(a => a.attname)
@@ -379,6 +388,7 @@ async function run() {
   `, [SCHEMA])
   // information_schema.routines
   // information_schema.parameters
+  // console.error(functions_new.rows)
 
   for (var f2 of functions_new.rows) {
     const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, relid: number, args: {type: string, notnull: boolean}[]}
@@ -393,7 +403,7 @@ async function run() {
     if (therow.relid)
       result = result + '[]'
 
-    if (therow.rettype === 'record') {
+    if (therow.rettype === 'record' ) {
       // Find first argument which is table
       if (!therow.arg_modes) {
         result = 'any[]'
@@ -408,6 +418,14 @@ async function run() {
         // out.write('---' + JSON.stringify({names: resnames, args: resargs}))
         result = `{${resargs.map((t, i) => `${resnames[i]}: ${t[0]}${!notnulls[i] ? ' | null' : ''}`).join(', ')}}[]`
       }
+    } else if ((therow.arg_modes ?? []).includes('t')) {
+      var idx = therow.arg_modes.indexOf('t')
+      var resargs = args.slice(idx)
+      var resnames = names.slice(idx)
+      var notnulls = notnulls.slice(idx)
+      orig_args = orig_args.slice(idx)
+      args = args.slice(0, idx)
+      names = names.slice(0, idx)
     }
 
     var final_args = args.map((a, i) => `${names[i]}: ${a[0]}`).join(', ')

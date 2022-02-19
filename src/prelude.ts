@@ -109,7 +109,11 @@ export async function POST(url: string, body: any = {}): Promise<any> {
 }
 
 
+export const Cons = Symbol("constructor")
+
+
 export class Model {
+  get [Cons](): typeof Model { return null! }
   static url = ''
   static pk: string[] = []
 
@@ -141,7 +145,7 @@ export class Model {
       method: 'POST',
       headers: heads,
       credentials: 'include',
-      body: JSON.stringify(models.map(m => Serialize(m)))
+      body: JSON.stringify(models.map(m => Serialize(m, this)))
     })
 
     return Deserialize((await res.json()), this) as T[]
@@ -158,11 +162,11 @@ export class Model {
       method: method,
       headers: heads,
       credentials: 'include',
-      body: JSON.stringify(Serialize(this))
+      body: JSON.stringify(Serialize(this, this[Cons]))
     })
 
     const payload = (await res.json())[0]
-    const n = Deserialize(payload, this.constructor)
+    const n = Deserialize(payload, this[Cons])
     return n
 
   }
@@ -171,7 +175,7 @@ export class Model {
    * Save upserts the record.
    */
   async save() {
-    return this.doSave((this.constructor as any).url, 'POST')
+    return this.doSave(this[Cons].url, 'POST')
   }
 
   /**
@@ -179,7 +183,7 @@ export class Model {
    */
   async update(...keys: (keyof this)[]): Promise<this> {
     const parts: string[] = []
-    const cst = (this.constructor as any)
+    const cst = this[Cons]
     if (cst.pk) {
       for (var pk of cst.pk) {
         parts.push(`${pk}=eq.${(this as any)[pk]}`)
@@ -193,7 +197,7 @@ export class Model {
   }
 
   async delete(): Promise<Response> {
-    const cst = (this.constructor as any)
+    const cst = this[Cons]
     if (!cst.pk) {
       throw new Error(`can't instance-delete an item without primary key`)
     }
