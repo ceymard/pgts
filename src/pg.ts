@@ -1,11 +1,11 @@
-import { Client } from 'pg'
-import { inspect } from 'util'
-import * as path from 'path'
-import * as fs from 'fs'
+import { Client } from "pg"
+import { inspect } from "util"
+import * as path from "path"
+import * as fs from "fs"
 
 const DB = process.argv[2]
-if (!DB) throw new Error(`Please give database`)
-const SCHEMA = process.argv[4] ?? 'public'
+if (!DB) throw new Error("Please give database")
+const SCHEMA = (process.argv[4] || "public")
 
 
 export function log(m: any) {
@@ -81,12 +81,12 @@ export interface ColumnResult {
   column_name: string
   ordinal_position: number
   column_default: string // expression à parser ?
-  is_nullable: 'YES' | 'NO'
+  is_nullable: "YES" | "NO"
   data_type: string // This is what we want !
   udt_catalog: string
   udt_schema: string // this is where we would want to go fetch our custom types if we had some
   udt_name: string // with this name.
-  is_updatable: 'YES' | 'NO'
+  is_updatable: "YES" | "NO"
   comment: string | null
 }
 
@@ -107,7 +107,7 @@ async function query(c: Client, sql: string, values?: any[]) {
 }
 
 async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
-  if (col.typname !== 'text')
+  if (col.typname !== "text")
     return null
 
   const res =  await query(c, /* sql */ `SELECT
@@ -155,7 +155,7 @@ async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
 
   // log(real_res)
   if (real_res.table_name === table && real_res.column_name === col.attname) {
-    return handle_udt_name(real_res.foreign_table_name)[0] + `['${real_res.foreign_column_name}']`
+    return handle_udt_name(real_res.foreign_table_name)[0] + `["${real_res.foreign_column_name}"]`
   }
 
   const values = await query(c, /* sql */`SELECT distinct "${real_res.foreign_column_name}" as val
@@ -165,36 +165,36 @@ async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
 
   if (values.rows.length >= 50)
     return null
-  return values.rows.map(r => `'${r.val.replace(/'/g, '\\\'')}'`).join(' | ')
+  return values.rows.map(r => `"${r.val.replace(/'/g, "\\'")}"`).join(" | ")
   // log()
 
 }
 
 export const type_maps = new Map<string, [string, string]>()
-  .set('date', ['Date', 'UTCDateSerializer'])
-  .set('timestamp', ['Date', 'UTCDateSerializer'])
-  .set('timestampz', ['Date', 'UTCDateSerializer'])
-  .set('hstore', ['Map<string, string>', 'HstoreSerializer'])
+  .set("date", ["Date", "UTCDateSerializer"])
+  .set("timestamp", ["Date", "UTCDateSerializer"])
+  .set("timestampz", ["Date", "UTCDateSerializer"])
+  .set("hstore", ["Map<string, string>", "HstoreSerializer"])
 
 
-function handle_udt_name(s: string, col?: ColumnResult): [string, string] {
+function handle_udt_name(s: string): [string, string] {
   // log(s)
-  var arr = (s[0] === '_')
-  var arrsuffix = ''
+  const arr = (s[0] === "_")
+  let arrsuffix = ""
   if (arr) {
-    arrsuffix = '[]' // FIXME should get dimensions
+    arrsuffix = "[]" // FIXME should get dimensions
     s = s.slice(1)
   }
-  var type = s.toLowerCase()
+  let type = s.toLowerCase()
 
   if (s.match(/^(int|float)\d+$/))
-    type = 'number'
-  else if (s === 'text' || s === 'name')
-    type = 'string'
-  else if (s === 'bool')
-    type = 'boolean'
-  else if (s === 'void')
-    type = 'void'
+    type = "number"
+  else if (s === "text" || s === "name")
+    type = "string"
+  else if (s === "bool")
+    type = "boolean"
+  else if (s === "void")
+    type = "void"
   // else if (s === 'json' || s === 'jsonb')
   //   type = 'any'
   else if (type_maps.has(s)) {
@@ -202,20 +202,20 @@ function handle_udt_name(s: string, col?: ColumnResult): [string, string] {
     return [typ + arrsuffix, ser]
   } else
     type = camelcase(s)
-  return [type + (arr ? '[]' : ''), type]
+  return [type + (arr ? "[]" : ""), type]
 }
 
 
 function handle_default_value(s: string) {
   // console.log(s)
-  var m: RegExpExecArray | null
-  if (m = /'(.*)'::jsonb?/.exec(s) || /(.*)::text$/.exec(s)) {
-    return m[1]
+  let m: RegExpExecArray | null
+  if ((m = /'(.*)'::jsonb?/.exec(s) || /(.*)::text$/.exec(s))) {
+    return m[1] == "''" ? "\"\"" : m[1]
   }
-  if (m = /'\{\}'::text\[\]/.exec(s)) {
-    return '[]'
+  if ((m = /'\{\}'::text\[\]/.exec(s))) {
+    return "[]"
   }
-  if (m = /'(.*)'::(.*)\.hstore/.exec(s)) {
+  if ((m = /'(.*)'::(.*)\.hstore/.exec(s))) {
     return "new Map()"
   }
   return `undefined! // ${s}`
@@ -226,22 +226,22 @@ async function run() {
 
   const file = process.argv[3]
   if (!file)
-    throw new Error('Please give a filename')
+    throw new Error("Please give a filename")
 
-  var contents: string
+  let contents: string
   try {
-    contents = fs.readFileSync(file, 'utf-8')
+    contents = fs.readFileSync(file, "utf-8")
   } catch (e) {
-    contents = ''
+    contents = ""
   }
   // console.log(contents)
 
   const re_impl_blocks = /!impl ([^\s*]+)\s*\*\*\/\s*\n((.|\n)*?)(?:\s|\n)*\/\*\*\s*!end impl/img
 
   const impl_blocks: {[name: string]: string} = {}
-  var match: RegExpMatchArray | null
-  while (match = re_impl_blocks.exec(contents)) {
-    impl_blocks[match[1]] = match[2] + '\n'
+  let match: RegExpMatchArray | null
+  while ((match = re_impl_blocks.exec(contents))) {
+    impl_blocks[match[1]] = match[2] + "\n"
   }
   // console.log(impl_blocks)
 
@@ -279,9 +279,9 @@ async function run() {
 
   const typrows = types.rows as {type: PgType, comment: string | null, attributes: (PgType & PgAttribute & {comment: string | null, default: string | null, is_primary: boolean | null})[]}[]
 
-  const out = file === '-' ? process.stdout as unknown as fs.WriteStream : fs.createWriteStream(file, 'utf-8')
+  const out = file === "-" ? process.stdout as unknown as fs.WriteStream : fs.createWriteStream(file, "utf-8")
 
-  out.write(fs.readFileSync(path.join(__dirname, '../src/prelude.ts'), 'utf-8')
+  out.write(fs.readFileSync(path.join(__dirname, "../src/prelude.ts"), "utf-8")
     .replace(re_impl_blocks, (match, name, contents) => {
       // console.log(name)
       if (impl_blocks[name])
@@ -290,48 +290,48 @@ async function run() {
     })
   )
 
-  for (var r of typrows) {
+  for (const r of typrows) {
     const table_name = r.type.typname
 
     if (r.comment) {
-      out.write(`/**\n${r.comment.split('\n').map(c => ` * ${c}`).join('\n')}\n */\n`)
+      out.write(`/**\n${r.comment.split("\n").map(c => ` * ${c}`).join("\n")}\n */\n`)
     }
-    out.write('export class ')
+    out.write("export class ")
     out.write(camelcase(table_name))
-    out.write(' extends Model {\n')
+    out.write(" extends Model {\n")
     out.write(`  get [Cons]() { return ${camelcase(table_name)} }\n`)
-    out.write(`  static url = '/pg/${table_name}'\n`)
+    out.write(`  static url = "/pg/${table_name}"\n`)
 
     const indices = r.attributes.filter(a => a.is_primary).map(a => a.attname)
     if (indices.length > 0) {
-      out.write(`  static pk = [${indices.map(i => `'${i}'`).join(', ')}]\n`)
+      out.write(`  static pk = [${indices.map(i => `"${i}"`).join(", ")}]\n`)
     }
 
-    var create_def = [] as string[]
-    let seen = new Set<string>()
-    for (var col of r.attributes) {
+    const create_def = [] as string[]
+    const seen = new Set<string>()
+    for (const col of r.attributes) {
       if (seen.has(col.attname)) continue
       seen.add(col.attname)
       const colname = col.attname.match(/\s+/) ? `"${col.attname}"` : col.attname
       if (col.comment) {
-        out.write(`  /**\n`)
-        out.write(col.comment.split('\n').map(c => `   * ${c}`).join('\n'))
-        out.write(`\n   */\n`)
+        out.write("  /**\n")
+        out.write(col.comment.split("\n").map(c => `   * ${c}`).join("\n"))
+        out.write("\n   */\n")
       }
       // out.write(col.udt_name)
 
       const values = await get_values(c, table_name, col)
       const [udt_name, serial] = handle_udt_name(col.typname)
-      var final_type = values ?? udt_name
+      let final_type = values ?? udt_name
       if (!col.attnotnull)
-        final_type += ' | null'
+        final_type += " | null"
 
-      const custom_type = !values && !udt_name.match(/^(string|number|boolean|Jsonb?)(\[\])?$/) && !udt_name.includes('|')
+      const custom_type = !values && !udt_name.match(/^(string|number|boolean|Jsonb?)(\[\])?$/) && !udt_name.includes("|")
       // console.warn(colname, custom_type, col.typname)
       // console.log(colname)
-      out.write(`  ${!custom_type ? '@a' :
-        col.typname === 'date' || col.typname === 'timestamp' || col.typname === 'timestamptz' ? `@aa(UTCDateSerializer)` :
-        `@aa(${serial})`} ${colname}: `)
+      out.write(`  ${!custom_type ? "@a" :
+        col.typname === "date" || col.typname === "timestamp" || col.typname === "timestamptz" ? "@aa(UTCDateSerializer)" :
+          `@aa(${serial})`} ${colname}: `)
 
       out.write(final_type)
       // out.write(` // ${col.typname}`)
@@ -339,34 +339,34 @@ async function run() {
       if (col.default) {
         out.write(` = ${handle_default_value(col.default)}`)
       } else if (!col.attnotnull) {
-        out.write(` = null`)
-      } else if (udt_name.includes('[]')) { // we have an array.
-        out.write(` = []`)
+        out.write(" = null")
+      } else if (udt_name.includes("[]")) { // we have an array.
+        out.write(" = []")
       } else if (custom_type) {
         out.write(` = new ${udt_name}()`)
       } else {
-        out.write(` = undefined!`)
+        out.write(" = undefined!")
       }
-      create_def.push(`${colname}${col.default || !col.attnotnull ? '?' : ''}: ${final_type}`)
-      out.write('\n')
+      create_def.push(`${colname}${col.default || !col.attnotnull ? "?" : ""}: ${final_type}`)
+      out.write("\n")
     }
     // log(create_def.join(', '))
-    out.write(`\n  static async createInDb(defs: {${create_def.join(', ')}}) {
+    out.write(`\n  static async createInDb(defs: {${create_def.join(", ")}}) {
     const val = new this()
     Object.assign(val, defs)
     return await val.save()
   }`)
 
-    out.write(`\n\n  static create(defs: {${create_def.join(', ')}}) {
+    out.write(`\n\n  static create(defs: {${create_def.join(", ")}}) {
     const val = new this()
     Object.assign(val, defs)
     return val
   }`)
 
     out.write(`\n  /** !impl ${camelcase(table_name)} **/\n`)
-    out.write(impl_blocks[camelcase(table_name)] || `    // extend this class here\n`)
-    out.write(`\n  /** !end impl **/\n`)
-    out.write('}\n\n')
+    out.write(impl_blocks[camelcase(table_name)] || "    // extend this class here\n")
+    out.write("\n  /** !end impl **/\n")
+    out.write("}\n\n")
   }
 
   const functions_new = await c.query(/* sql */`
@@ -390,59 +390,59 @@ async function run() {
   // information_schema.parameters
   // console.error(functions_new.rows)
 
-  for (var f2 of functions_new.rows) {
+  for (const f2 of functions_new.rows) {
     const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, relid: number, args: {type: string, notnull: boolean}[]}
-    var orig_args = therow.args.map(a => a.type)
-    var args = therow.args.map(a => handle_udt_name(a.type))
-    var notnulls = therow.args.map(a => !!a.notnull)
-    var names = therow.arg_names
-    var [result, serial] = handle_udt_name(therow.rettype)
+    let orig_args = therow.args.map(a => a.type)
+    let args = therow.args.map(a => handle_udt_name(a.type))
+    let notnulls = therow.args.map(a => !!a.notnull)
+    let names = therow.arg_names
+    let [result, serial] = handle_udt_name(therow.rettype)
 
     // If we have a relid, it means this function is returning a table row type
     // Postgrest seems to think this means we will return an array.
     if (therow.relid)
-      result = result + '[]'
+      result = result + "[]"
 
-    if (therow.rettype === 'record' ) {
+    if (therow.rettype === "record" ) {
       // Find first argument which is table
       if (!therow.arg_modes) {
-        result = 'any[]'
+        result = "any[]"
       } else {
-        var idx = therow.arg_modes.indexOf('t')
-        var resargs = args.slice(idx)
-        var resnames = names.slice(idx)
-        var notnulls = notnulls.slice(idx)
+        const idx = therow.arg_modes.indexOf("t")
+        const resargs = args.slice(idx)
+        const resnames = names.slice(idx)
+        notnulls = notnulls.slice(idx)
         orig_args = orig_args.slice(idx)
         args = args.slice(0, idx)
         names = names.slice(0, idx)
         // out.write('---' + JSON.stringify({names: resnames, args: resargs}))
-        result = `{${resargs.map((t, i) => `${resnames[i]}: ${t[0]}${!notnulls[i] ? ' | null' : ''}`).join(', ')}}[]`
+        result = `{${resargs.map((t, i) => `${resnames[i]}: ${t[0]}${!notnulls[i] ? " | null" : ""}`).join(", ")}}[]`
       }
-    } else if ((therow.arg_modes ?? []).includes('t')) {
-      var idx = therow.arg_modes.indexOf('t')
-      var resargs = args.slice(idx)
-      var resnames = names.slice(idx)
-      var notnulls = notnulls.slice(idx)
+    } else if ((therow.arg_modes ?? []).includes("t")) {
+      const idx = therow.arg_modes.indexOf("t")
+      // resargs = args.slice(idx)
+      // resnames = names.slice(idx)
+      notnulls = notnulls.slice(idx)
       orig_args = orig_args.slice(idx)
       args = args.slice(0, idx)
       names = names.slice(0, idx)
     }
 
-    var final_args = args.map((a, i) => `${names[i]}: ${a[0]}`).join(', ')
+    const final_args = args.map((a, i) => `${names[i]}: ${a[0]}`).join(", ")
     // out.write(therow.name, final_args, result)
 
     out.write(`export function ${therow.name}(${final_args}): Promise<${result}> {\n`)
     // out.write(`  /** !impl ${therow.name}**/\n`)
-    out.write(`  return POST('/pg/rpc/${therow.name}', JSON.stringify({${(names||[])
+    out.write(`  return POST("/pg/rpc/${therow.name}", JSON.stringify({${(names||[])
       .map((n, i) =>
-        orig_args[i] === 'date' || orig_args[i] === 'timestamp' || orig_args[i] === 'timestamptz' ? `${n}: UTCDateSerializer.Serialize(${n})` : n)
-      .join(', ')}}))\n`)
+        orig_args[i] === "date" || orig_args[i] === "timestamp" || orig_args[i] === "timestamptz" ? `${n}: UTCDateSerializer.Serialize(${n})` : n)
+      .join(", ")}}))\n`)
     // console.error(result)
-    if (result !== 'Json' && result !== 'Jsonb' && result.match(/[A-Z]/) && !result.match(/\|/)) {
+    if (result !== "Json" && result !== "Jsonb" && result.match(/[A-Z]/) && !result.match(/\|/)) {
       out.write(`    .then(v => Deserialize(v, ${serial}))`)
     }
     // out.write(`  /** !end impl **/\n`)
-    out.write('\n}\n\n')
+    out.write("\n}\n\n")
   }
 
   await c.end()

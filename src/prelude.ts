@@ -1,5 +1,5 @@
 
-import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize } from 'cerialize'
+import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize } from "cerialize"
 
 /** !impl FILE_HEADER **/
 // Add your imports here
@@ -14,15 +14,15 @@ import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize } fro
 
 export const HstoreSerializer = {
   Serialize(hstore: Map<string, string>) {
-    var res: string[] = []
-    for (var [key, obj] of hstore) {
+    const res: string[] = []
+    for (const [key, obj] of hstore) {
       res.push(`${key} => ${obj}`)
     }
-    return res.join(', ')
+    return res.join(", ")
   },
   Deserialize(json: any) {
-    var res = new Map<string, string>()
-    for (var key in json) {
+    const res = new Map<string, string>()
+    for (const key in json) {
       res.set(key, json[key])
     }
     return res
@@ -58,9 +58,9 @@ export function FETCH(input: RequestInfo, init?: RequestInit): Promise<Response>
   /** !impl FETCH_PRELUDE **/
   // override here the way fetch should work globally
   return fetch(input, init).then(res => {
-  	if (res.status < 200 || res.status >= 400)
-  	  return Promise.reject(res)
-  	return res
+    if (res.status < 200 || res.status >= 400)
+      return Promise.reject(res)
+    return res
   })
   /** !end impl **/
 }
@@ -68,27 +68,27 @@ export function FETCH(input: RequestInfo, init?: RequestInit): Promise<Response>
 
 export function GET(url: string) {
   return FETCH(url, {
-    method: 'GET',
+    method: "GET",
     headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json'
+      Accept: "application/json",
+      "Content-Type": "application/json"
     },
-    credentials: 'include'
+    credentials: "include"
   }).then(res => {
-  	return res.json()
+    return res.json()
   })
 }
 
 export function DELETE(url: string) {
   return FETCH(url, {
-    method: 'DELETE',
+    method: "DELETE",
     headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json'
+      Accept: "application/json",
+      "Content-Type": "application/json"
     },
-    credentials: 'include'
+    credentials: "include"
   }).then(res => {
-  	return res.text() as any
+    return res.text() as any
   })
 }
 
@@ -96,12 +96,12 @@ export function DELETE(url: string) {
 
 export async function POST(url: string, body: any = {}): Promise<any> {
   return FETCH(url, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json'
+      Accept: "application/json",
+      "Content-Type": "application/json"
     },
-    credentials: 'include',
+    credentials: "include",
     body: body
   }).then(res => {
     return res.json()
@@ -112,12 +112,12 @@ export async function POST(url: string, body: any = {}): Promise<any> {
 export const Cons = Symbol("constructor")
 
 
-export class Model {
-  get [Cons](): typeof Model { return null! }
-  static url = ''
+export abstract class Model {
+  abstract get [Cons](): typeof Model
+  static url = ""
   static pk: string[] = []
 
-  static async get<T extends Model>(this: ModelMaker<T>, supl: string = ''): Promise<T[]> {
+  static async get<T extends Model>(this: ModelMaker<T>, supl: string = ""): Promise<T[]> {
     // const ret = this as any as (new () => T)
     const res = await GET(this.url + supl)
     return Deserialize(res, this)
@@ -125,8 +125,8 @@ export class Model {
 
   static async remove<T extends Model>(this: ModelMaker<T>, supl: string) {
     if (!supl)
-      throw new Error('suppl cannot be empty')
-    if (supl[0] !== '?') supl = '?' + supl
+      throw new Error("suppl cannot be empty")
+    if (supl[0] !== "?") supl = "?" + supl
     const res = await DELETE(this.url + supl)
     return res
   }
@@ -135,16 +135,16 @@ export class Model {
     if (!models.length) return []
 
     const heads = new Headers({
-      Accept: 'application/json',
-      Prefer: 'resolution=merge-duplicates',
-      'Content-Type': 'application/json'
+      Accept: "application/json",
+      Prefer: "resolution=merge-duplicates",
+      "Content-Type": "application/json"
     })
-    heads.append('Prefer', 'return=representation')
+    heads.append("Prefer", "return=representation")
 
     const res = await FETCH(this.url, {
-      method: 'POST',
+      method: "POST",
       headers: heads,
-      credentials: 'include',
+      credentials: "include",
       body: JSON.stringify(models.map(m => Serialize(m, this)))
     })
 
@@ -153,15 +153,15 @@ export class Model {
 
   protected async doSave(url: string, method: string): Promise<this> {
     const heads = new Headers({
-      Accept: 'application/json',
-      Prefer: 'resolution=merge-duplicates',
-      'Content-Type': 'application/json'
+      Accept: "application/json",
+      Prefer: "resolution=merge-duplicates",
+      "Content-Type": "application/json"
     })
-    heads.append('Prefer', 'return=representation')
+    heads.append("Prefer", "return=representation")
     const res = await FETCH(url, {
       method: method,
       headers: heads,
-      credentials: 'include',
+      credentials: "include",
       body: JSON.stringify(Serialize(this, this[Cons]))
     })
 
@@ -175,7 +175,7 @@ export class Model {
    * Save upserts the record.
    */
   async save() {
-    return this.doSave(this[Cons].url, 'POST')
+    return this.doSave(this[Cons].url, "POST")
   }
 
   /**
@@ -185,31 +185,31 @@ export class Model {
     const parts: string[] = []
     const cst = this[Cons]
     if (cst.pk) {
-      for (var pk of cst.pk) {
+      for (const pk of cst.pk) {
         parts.push(`${pk}=eq.${(this as any)[pk]}`)
       }
     }
     if (keys.length) {
-      parts.push(`columns=${keys.join(',')}`)
+      parts.push(`columns=${keys.join(",")}`)
     }
 
-    return this.doSave(cst.url + (parts.length ? `?${parts.join('&')}` : ''), 'PATCH')
+    return this.doSave(cst.url + (parts.length ? `?${parts.join("&")}` : ""), "PATCH")
   }
 
   async delete(): Promise<Response> {
     const cst = this[Cons]
     if (!cst.pk) {
-      throw new Error(`can't instance-delete an item without primary key`)
+      throw new Error("can't instance-delete an item without primary key")
     }
     const parts: string[] = []
-    for (var pk of cst.pk) {
+    for (const pk of cst.pk) {
       parts.push(`${pk}=eq.${(this as any)[pk]}`)
     }
-    return FETCH(`${cst.url}?${parts.join('&')}`, {
-      method: 'DELETE',
-      credentials: 'include',
+    return FETCH(`${cst.url}?${parts.join("&")}`, {
+      method: "DELETE",
+      credentials: "include",
     })
-}
+  }
 
   /** !impl Model **/
   // Add methods to model here
