@@ -116,6 +116,7 @@ export abstract class Model {
   abstract get [Cons](): typeof Model
   static url = ""
   static pk: string[] = []
+  oldpk!: any[]
 
   static async get<T extends Model>(this: ModelMaker<T>, supl: string = ""): Promise<T[]> {
     // const ret = this as any as (new () => T)
@@ -184,21 +185,27 @@ export abstract class Model {
   async update(...keys: (keyof this)[]): Promise<this> {
     const parts: string[] = []
     const cst = this[Cons]
-    if (cst.pk) {
-      for (const pk of cst.pk) {
-        parts.push(`${pk}=eq.${(this as any)[pk]}`)
-      }
+    const pk = cst.pk
+    if (!pk || pk.length === 0) {
+      throw new Error("can't instance-update an item without primary key")
     }
+    for (let i = 0; i < pk.length; i++) {
+      parts.push(`${pk[i]}=eq.${this.oldpk[i]}`)
+    }
+
     if (keys.length) {
       parts.push(`columns=${keys.join(",")}`)
     }
 
-    return this.doSave(cst.url + (parts.length ? `?${parts.join("&")}` : ""), "PATCH")
+    return this.doSave(cst.url + (parts.length ? `?${parts.join("&")}` : ""), "PATCH").then(r => {
+      this.oldpk = pk.map(k => (this as any)[k])
+      return r
+    })
   }
 
   async delete(): Promise<Response> {
     const cst = this[Cons]
-    if (!cst.pk) {
+    if (!cst.pk || cst.pk.length === 0) {
       throw new Error("can't instance-delete an item without primary key")
     }
     const parts: string[] = []

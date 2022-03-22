@@ -305,6 +305,10 @@ async function run() {
     const indices = r.attributes.filter(a => a.is_primary).map(a => a.attname)
     if (indices.length > 0) {
       out.write(`  static pk = [${indices.map(i => `"${i}"`).join(", ")}]\n`)
+      out.write("  oldpk: any[] = undefined as any\n")
+      out.write(`public static OnDeserialized(inst: ${camelcase(table_name)}, json : any) {
+        inst.oldpk = this.pk.map(k => (inst as any)[k])
+      }`)
     }
 
     const create_def = [] as string[]
