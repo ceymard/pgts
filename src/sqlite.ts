@@ -78,7 +78,7 @@ while ((match = re_impl_blocks.exec(contents))) {
 
 const out = file === "-" ? process.stdout as unknown as fs.WriteStream : fs.createWriteStream(file, "utf-8")
 
-out.write(fs.readFileSync(path.join(__dirname, "../src/prelude.ts"), "utf-8")
+out.write(fs.readFileSync(path.join(__dirname, "../src/prelude-sqlite.ts"), "utf-8")
   .replace(re_impl_blocks, (match, name, contents) => {
     // console.log(name)
     if (impl_blocks[name])
@@ -110,6 +110,10 @@ for (const t of tables) {
   const indices = columns.filter(a => a.pk).map(a => a.name)
   if (indices.length > 0) {
     out.write(`  static pk = [${indices.map(i => `"${i}"`).join(", ")}]\n`)
+    out.write("  oldpk: any[] = undefined as any\n")
+    out.write(`public static OnDeserialized(inst: ${camelcase(table_name)}, json : any) {
+      inst.oldpk = this.pk.map(k => (inst as any)[k])
+    }`)
   }
 
   const create_def = [] as string[]
@@ -183,7 +187,7 @@ function assert(cond: any, msg?: string): asserts cond {
 
 
 function camelcase(s: string) {
-  return s[0].toUpperCase() + s.slice(1).replace(/_([\w])/g, (match, l) => l.toUpperCase())
+  return s[0].toUpperCase() + s.slice(1).replace(/\./g, "").replace(/_([\w])/g, (match, l) => l.toUpperCase())
 }
 
 function query<T>(sql: string, ...values: any[]): T[] {
@@ -217,13 +221,15 @@ function get_values(table: string, col: SqliteColumn) {
 
   if (values.length >= 50)
     return null
-  return values.map(r => `"${r.val.replace(/'/g, "\\'")}"`).join(" | ")
+  return values.map(r => `"${r.val.replace(/\r/g, "\\r").replace(/\n/g, "\\n").replace(/"/g, "\\\"")}"`).join(" | ")
   // log()
 
 }
 
 function handle_udt_name(s: string): [string, string] {
   // log(s)
+  s = s || "text" // sqlite default type affinity
+
   const arr = (s[0] === "_")
   let arrsuffix = ""
   if (arr) {
@@ -231,8 +237,9 @@ function handle_udt_name(s: string): [string, string] {
     s = s.slice(1)
   }
   let type = s.toLowerCase()
+  // console.error(type)
 
-  if (s.match(/^(int|float)\d+$/))
+  if (s.match(/^(int|float)\d*$/))
     type = "number"
   else if (s === "text" || s === "name")
     type = "string"
@@ -245,8 +252,9 @@ function handle_udt_name(s: string): [string, string] {
   else if (type_maps.has(s)) {
     const [typ, ser] = type_maps.get(s)!
     return [typ + arrsuffix, ser]
-  } else
-    type = camelcase(s)
+  } else {
+    type = "string"
+  }
   return [type + (arr ? "[]" : ""), type]
 }
 
