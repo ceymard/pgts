@@ -108,6 +108,14 @@ export async function POST(url: string, body: any = {}): Promise<any> {
   })
 }
 
+function to_update_arg(v: any) {
+  if (v == null) return "is-null"
+  if (v instanceof Date) return `eq-${v.toJSON()}`
+  // if (typeof v === "string") return `eq."${v.replace(/"/g, "\\\"")}"`
+  if (typeof v === "boolean") return `is-${v}`
+  return `eq-${v}`
+}
+
 
 export const Cons = Symbol("constructor")
 
@@ -192,7 +200,7 @@ export abstract class Model {
       throw new Error("can't instance-update an item without primary key")
     }
     for (let i = 0; i < pk.length; i++) {
-      parts.push(`${pk[i]}-eq-${this.oldpk[i]}`)
+      parts.push(`${pk[i]}-${to_update_arg(this.oldpk[i])}`)
     }
     if (keys.length) {
       parts.push(`columns=${keys.join(",")}`)
@@ -211,7 +219,7 @@ export abstract class Model {
     }
     const parts: string[] = []
     for (const pk of cst.pk) {
-      parts.push(`${pk}-eq-${(this as any)[pk]}`)
+      parts.push(`${pk}-${to_update_arg((this as any)[pk])}`)
     }
     return FETCH(`${cst.url}?where=${parts.join("-and-")}`, {
       method: "DELETE",

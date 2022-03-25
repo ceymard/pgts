@@ -54,6 +54,14 @@ export interface ModelMaker<T extends Model> {
 }
 
 
+function to_update_arg(v: any) {
+  if (v == null) return "is.null"
+  if (v instanceof Date) return `eq.${v.toJSON()}`
+  // if (typeof v === "string") return `eq."${v.replace(/"/g, "\\\"")}"`
+  if (typeof v === "boolean") return `is.${v}`
+  return `eq.${v}`
+}
+
 export function FETCH(input: RequestInfo, init?: RequestInit): Promise<Response> {
   /** !impl FETCH_PRELUDE **/
   // override here the way fetch should work globally
@@ -192,7 +200,7 @@ export abstract class Model {
       throw new Error("can't instance-update an item without primary key")
     }
     for (let i = 0; i < pk.length; i++) {
-      parts.push(`${pk[i]}=eq.${this.oldpk[i]}`)
+      parts.push(`${pk[i]}=${to_update_arg(this.oldpk[i])}`)
     }
 
     if (keys.length) {
@@ -212,7 +220,7 @@ export abstract class Model {
     }
     const parts: string[] = []
     for (const pk of cst.pk) {
-      parts.push(`${pk}=eq.${(this as any)[pk]}`)
+      parts.push(`${pk}=${to_update_arg((this as any)[pk])}`)
     }
     return FETCH(`${cst.url}?${parts.join("&")}`, {
       method: "DELETE",
