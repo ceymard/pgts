@@ -114,9 +114,9 @@ export const Cons = Symbol("constructor")
 
 export abstract class Model {
   abstract get [Cons](): typeof Model
+  oldpk!: any[]
   static url = ""
   static pk: string[] = []
-  oldpk!: any[]
 
   static async get<T extends Model>(this: ModelMaker<T>, supl: string = ""): Promise<T[]> {
     // const ret = this as any as (new () => T)
@@ -192,14 +192,13 @@ export abstract class Model {
       throw new Error("can't instance-update an item without primary key")
     }
     for (let i = 0; i < pk.length; i++) {
-      parts.push(`${pk[i]}=eq.${this.oldpk[i]}`)
+      parts.push(`${pk[i]}-eq-${this.oldpk[i]}`)
     }
-
     if (keys.length) {
       parts.push(`columns=${keys.join(",")}`)
     }
 
-    return this.doSave(cst.url + (parts.length ? `?${parts.join("&")}` : ""), "PATCH").then(r => {
+    return this.doSave(cst.url + (parts.length ? `?${parts.join("-and-")}` : ""), "PATCH").then(r => {
       this.oldpk = pk.map(k => (this as any)[k])
       return r
     })
@@ -212,9 +211,9 @@ export abstract class Model {
     }
     const parts: string[] = []
     for (const pk of cst.pk) {
-      parts.push(`${pk}=eq.${(this as any)[pk]}`)
+      parts.push(`${pk}-eq-${(this as any)[pk]}`)
     }
-    return FETCH(`${cst.url}?${parts.join("&")}`, {
+    return FETCH(`${cst.url}?where=${parts.join("-and-")}`, {
       method: "DELETE",
       credentials: "include",
     })
