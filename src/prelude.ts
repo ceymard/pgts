@@ -12,6 +12,15 @@ import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize } fro
  * BEWARE THAT CODE MAY DISAPPEAR IF THE CORRESPONDING TABLE CHANGES ITS NAME
  */
 
+function pad(v: number): string {
+  return v > 0 && v < 10 ? "0" + v : "" + v
+}
+
+/** Date objects are generally created with timezones, and we want to strip out the timezone portion */
+export function format_date_iso(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 export const HstoreSerializer = {
   Serialize(hstore: Map<string, string>) {
     const res: string[] = []
@@ -35,7 +44,7 @@ export const HstoreSerializer = {
 export const UTCDateSerializer = {
   Serialize(date: any): any {
     if (date == null) return null
-    return new Date(date).toJSON()
+    return format_date_iso(new Date(date))
   },
   Deserialize(date: any) {
     if (date instanceof Date) return date
@@ -48,10 +57,7 @@ export type Json = any
 export type Jsonb = Json
 
 
-export interface ModelMaker<T extends Model> {
-  new (): T
-  url: string
-}
+export type ModelMaker<T extends Model> = {new(...a: any): T} & Pick<typeof Model, keyof typeof Model>
 
 
 function to_update_arg(v: any) {
@@ -118,18 +124,23 @@ export async function POST(url: string, body: any = {}): Promise<any> {
 
 
 export const Cons = Symbol("constructor")
+export const OldPk = Symbol("oldpk")
 
 
 export abstract class Model {
-  abstract get [Cons](): typeof Model
+  abstract get [Cons](): typeof Model;
+  [OldPk]!: any[]
   static url = ""
   static pk: string[] = []
-  oldpk!: any[]
 
   static async get<T extends Model>(this: ModelMaker<T>, supl: string = ""): Promise<T[]> {
     // const ret = this as any as (new () => T)
     const res = await GET(this.url + supl)
-    return Deserialize(res, this)
+    const res_t = Deserialize(res, this)
+    for (const r of res_t) {
+      r[OldPk] = this.pk.map(k => (r as any)[k])
+    }
+    return res_t
   }
 
   static async remove<T extends Model>(this: ModelMaker<T>, supl: string) {
@@ -157,7 +168,11 @@ export abstract class Model {
       body: JSON.stringify(models.map(m => Serialize(m, this)))
     })
 
-    return Deserialize((await res.json()), this) as T[]
+    const res_t = Deserialize((await res.json()), this) as T[]
+    for (const r of res_t) {
+      r[OldPk] = this.pk.map(k => (r as any)[k])
+    }
+    return res_t
   }
 
   protected async doSave(url: string, method: string): Promise<this> {
@@ -176,15 +191,15 @@ export abstract class Model {
 
     const payload = (await res.json())[0]
     const n = Deserialize(payload, this[Cons])
+    n[OldPk] = this[Cons].pk.map(k => (this as any)[k])
     return n
-
   }
 
   /**
    * Save upserts the record.
    */
   async save() {
-    if (this.oldpk)
+    if (this[OldPk])
       return this.update()
     return this.doSave(this[Cons].url, "POST")
   }
@@ -200,17 +215,14 @@ export abstract class Model {
       throw new Error("can't instance-update an item without primary key")
     }
     for (let i = 0; i < pk.length; i++) {
-      parts.push(`${pk[i]}=${to_update_arg(this.oldpk[i])}`)
+      parts.push(`${pk[i]}=${to_update_arg(this[OldPk][i])}`)
     }
 
     if (keys.length) {
       parts.push(`columns=${keys.join(",")}`)
     }
 
-    return this.doSave(cst.url + (parts.length ? `?${parts.join("&")}` : ""), "PATCH").then(r => {
-      this.oldpk = pk.map(k => (this as any)[k])
-      return r
-    })
+    return this.doSave(cst.url + (parts.length ? `?${parts.join("&")}` : ""), "PATCH")
   }
 
   async delete(): Promise<Response> {

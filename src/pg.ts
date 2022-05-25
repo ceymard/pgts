@@ -210,7 +210,7 @@ function handle_default_value(s: string) {
   // console.log(s)
   let m: RegExpExecArray | null
   if ((m = /'(.*)'::jsonb?/.exec(s) || /(.*)::text$/.exec(s))) {
-    return m[1] == "''" ? "\"\"" : m[1]
+    return m[1] == "''" ? "\"\"" : m[1][0] === "'" ? "\"" + m[1].slice(1, -1).replace(/"/g, "\\\"") + "\"" : m[1]
   }
   if ((m = /'\{\}'::text\[\]/.exec(s))) {
     return "[]"
@@ -218,7 +218,7 @@ function handle_default_value(s: string) {
   if ((m = /'(.*)'::(.*)\.hstore/.exec(s))) {
     return "new Map()"
   }
-  return `undefined! // ${s}`
+  return `undefined as any // ${s}`
 }
 
 
@@ -304,11 +304,8 @@ async function run() {
 
     const indices = r.attributes.filter(a => a.is_primary).map(a => a.attname)
     if (indices.length > 0) {
-      out.write(`  static pk = [${indices.map(i => `"${i}"`).join(", ")}]\n`)
-      out.write("  oldpk: any[] = undefined as any\n")
-      out.write(`public static OnDeserialized(inst: ${camelcase(table_name)}, json : any) {
-        inst.oldpk = this.pk.map(k => (inst as any)[k])
-      }`)
+      out.write(`  static pk = [${indices.map(i => `"${i}"`).join(", ")}];\n`)
+      out.write("  [OldPk]: any[] = undefined as any\n")
     }
 
     const create_def = [] as string[]
@@ -349,7 +346,7 @@ async function run() {
       } else if (custom_type) {
         out.write(` = new ${udt_name}()`)
       } else {
-        out.write(" = undefined!")
+        out.write(" = undefined as any")
       }
       create_def.push(`${colname}${col.default || !col.attnotnull ? "?" : ""}: ${final_type}`)
       out.write("\n")
@@ -368,7 +365,7 @@ async function run() {
   }`)
 
     out.write(`\n  /** !impl ${camelcase(table_name)} **/\n`)
-    out.write(impl_blocks[camelcase(table_name)] || "    // extend this class here\n")
+    out.write(impl_blocks[camelcase(table_name)] || "  // extend this class here\n")
     out.write("\n  /** !end impl **/\n")
     out.write("}\n\n")
   }
