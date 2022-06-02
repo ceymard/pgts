@@ -10,6 +10,9 @@
     "prepublish": "npm run build",
     "build": "tsc | wtsc && chmod +x ./lib/pg.js"
   },
+  "files": [
+      "/lib"
+    ],
   "author": "",
   "license": "ISC",
   "dependencies": {
