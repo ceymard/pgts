@@ -3,8 +3,12 @@
   "version": "0.0.1",
   "description": "",
   "main": "index.js",
+  "bin": {
+    "pgts": "./lib/pg.js"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "prepublish": "npm run build",
+    "build": "tsc | wtsc && chmod +x ./lib/pg.js"
   },
   "author": "",
   "license": "ISC",

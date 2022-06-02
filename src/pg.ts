@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { Client } from "pg"
 import { inspect } from "util"
 import * as path from "path"

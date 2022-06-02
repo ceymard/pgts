@@ -6,7 +6,7 @@
     "declaration": true,
     "sourceMap": true,
     "strict": true,
-    "noUnusedLocals": true,
+    "noUnusedLocals": false,
     "outDir": "lib",
     "rootDir": "src",
     "experimentalDecorators": true,
