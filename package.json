@@ -1,6 +1,6 @@
 {
   "name": "@salesway/pgts",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "",
   "main": "index.js",
   "bin": {
@@ -11,7 +11,7 @@
     "build": "tsc | wtsc && chmod +x ./lib/pg.js"
   },
   "files": [
-      "/lib"
+      "/lib", "/src"
     ],
   "author": "",
   "license": "ISC",
