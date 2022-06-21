@@ -377,6 +377,7 @@ async function run() {
       pro.proname as name,
       pro.proargmodes::text[] as arg_modes,
       pro.proargnames::text[] as arg_names,
+      pro.proretset as retset,
       typ2.typname as rettype,
       typ2.typrelid as relid,
       COALESCE(JSON_AGG(json_build_object('type', typ.typname, 'notnull', typ.typnotnull) ORDER BY ordinality) FILTER (WHERE typ.typname IS NOT NULL), '[]') as args
@@ -387,14 +388,14 @@ async function run() {
     LEFT JOIN pg_type typ ON typ.oid = type_oid
     INNER JOIN pg_type typ2 ON typ2.oid = pro.prorettype
     WHERE name.nspname = $1 AND typ2.typname <> 'trigger'
-    GROUP BY pro.proname, pro.proargmodes, pro.proargnames, typ2.typname, typ2.typrelid
+    GROUP BY pro.proname, pro.proargmodes, pro.proargnames, pro.proretset, typ2.typname, typ2.typrelid
   `, [SCHEMA])
   // information_schema.routines
   // information_schema.parameters
   // console.error(functions_new.rows)
 
   for (const f2 of functions_new.rows) {
-    const therow = f2 as {name: string, arg_names: string[], arg_modes: string[], rettype: string, relid: number, args: {type: string, notnull: boolean}[]}
+    const therow = f2 as {name: string, arg_names: string[], retset: boolean, arg_modes: string[], rettype: string, relid: number, args: {type: string, notnull: boolean}[]}
     let orig_args = therow.args.map(a => a.type)
     let args = therow.args.map(a => handle_udt_name(a.type))
     let notnulls = therow.args.map(a => !!a.notnull)
@@ -403,9 +404,10 @@ async function run() {
 
     // If we have a relid, it means this function is returning a table row type
     // Postgrest seems to think this means we will return an array.
-    if (therow.relid)
+    if (therow.retset)
       result = result + "[]"
 
+    console.warn(therow, result)
     if (therow.rettype === "record" ) {
       // Find first argument which is table
       if (!therow.arg_modes) {
