@@ -407,7 +407,6 @@ async function run() {
     if (therow.retset)
       result = result + "[]"
 
-    console.warn(therow, result)
     if (therow.rettype === "record" ) {
       // Find first argument which is table
       if (!therow.arg_modes) {
