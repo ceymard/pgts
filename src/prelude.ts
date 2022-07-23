@@ -59,6 +59,8 @@ export type Jsonb = Json
 
 export type ModelMaker<T extends Model> = {new(...a: any): T} & Pick<typeof Model, keyof typeof Model>
 
+export const sym_count = Symbol("count")
+export type RequestCount = {total: number, first: number, last: number}
 
 function to_update_arg(v: any) {
   if (v == null) return "is.null"
@@ -80,16 +82,30 @@ export function FETCH(input: RequestInfo, init?: RequestInit): Promise<Response>
 }
 
 
-export function GET(url: string) {
+export function GET(url: string, opts: { exact_count?: boolean } = { }) {
   return FETCH(url, {
     method: "GET",
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...(opts.exact_count ? { Prefer: "count=exact" } : {}),
     },
     credentials: "include"
-  }).then(res => {
-    return res.json()
+  }).then(async res => {
+    const result = await res.json()
+    const head = res.headers.get("Content-Range")
+    if (opts.exact_count && head) {
+      const [strbegin, strtotal] = head.split("/")
+      const total = parseInt(strtotal)
+      const [strfirst, strlast] = strbegin.split("-")
+      const first = parseInt(strfirst)
+      const last = parseInt(strlast)
+      const pagecount = total / (first - last + 1)
+      result[sym_count] = {total, first, last, pagecount}
+    } else {
+      result[sym_count] = {total: NaN, first: NaN, last: NaN, pagecount: NaN}
+    }
+    return result
   })
 }
 
@@ -133,13 +149,14 @@ export abstract class Model {
   static url = ""
   static pk: string[] = []
 
-  static async get<T extends Model>(this: ModelMaker<T>, supl: string = ""): Promise<T[]> {
+  static async get<T extends Model>(this: ModelMaker<T>, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<T[] & {[sym_count]: RequestCount}> {
     // const ret = this as any as (new () => T)
-    const res = await GET(this.url + supl)
+    const res = await GET(this.url + supl, opts)
     const res_t = Deserialize(res, this)
     for (const r of res_t) {
       r[OldPk] = this.pk.map(k => (r as any)[k])
     }
+    if (opts.exact_count && res[sym_count]) res_t[sym_count] = res[sym_count]
     return res_t
   }
 

@@ -189,7 +189,7 @@ function handle_udt_name(s: string): [string, string] {
   }
   let type = s.toLowerCase()
 
-  if (s.match(/^(int|float)\d+$/))
+  if (s.match(/^(int|float|real|numeric)\d*$/i))
     type = "number"
   else if (s === "text" || s === "name")
     type = "string"
