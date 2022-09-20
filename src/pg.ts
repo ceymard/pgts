@@ -173,9 +173,9 @@ async function get_values(c: Client, table: string, col: PgAttribute & PgType) {
 }
 
 export const type_maps = new Map<string, [string, string]>()
-  .set("date", ["Date", "UTCDateSerializer"])
-  .set("timestamp", ["Date", "UTCDateSerializer"])
-  .set("timestampz", ["Date", "UTCDateSerializer"])
+  .set("date", ["Date", "Date"])
+  .set("timestamp", ["Date", "Date"])
+  .set("timestamptz", ["Date", "Date"])
   .set("hstore", ["Map<string, string>", "HstoreSerializer"])
 
 
@@ -333,7 +333,7 @@ async function run() {
       // console.warn(colname, custom_type, col.typname)
       // console.log(colname)
       out.write(`  ${!custom_type ? "@a" :
-        col.typname === "date" || col.typname === "timestamp" || col.typname === "timestamptz" ? "@aa(UTCDateSerializer)" :
+        col.typname === "date" || col.typname === "timestamp" || col.typname === "timestamptz" ? "@aa(Date)" :
           `@aa(${serial})`} ${colname}: `)
 
       out.write(final_type)
@@ -439,7 +439,7 @@ async function run() {
     // out.write(`  /** !impl ${therow.name}**/\n`)
     out.write(`  return POST("/pg/rpc/${therow.name}", JSON.stringify({${(names||[])
       .map((n, i) =>
-        orig_args[i] === "date" || orig_args[i] === "timestamp" || orig_args[i] === "timestamptz" ? `${n}: UTCDateSerializer.Serialize(${n})` : n)
+        orig_args[i] === "date" || orig_args[i] === "timestamp" || orig_args[i] === "timestamptz" ? `${n}: new Date(${n})` : n)
       .join(", ")}}))\n`)
     // console.error(result)
     if (result !== "Json" && result !== "Jsonb" && result.match(/[A-Z]/) && !result.match(/\|/)) {

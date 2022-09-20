@@ -38,21 +38,6 @@ export const HstoreSerializer = {
   }
 }
 
-/**
- * Convert the dates to and from UTC time since postgres is generally using UTC internally.
- */
-export const UTCDateSerializer = {
-  Serialize(date: any): any {
-    if (date == null) return null
-    return format_date_iso(new Date(date))
-  },
-  Deserialize(date: any) {
-    if (date instanceof Date) return date
-    if (date == null) return null
-    return new Date(date)
-  }
-}
-
 export type Json = any
 export type Jsonb = Json
 
