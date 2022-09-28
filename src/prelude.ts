@@ -134,13 +134,14 @@ export abstract class Model {
   static url = ""
   static pk: string[] = []
 
+  static OnDeserialized(inst: Model) {
+    inst[OldPk] = this.pk.map(k => (inst as any)[k])
+  }
+
   static async get<T extends Model>(this: ModelMaker<T>, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<T[] & {[sym_count]: RequestCount}> {
     // const ret = this as any as (new () => T)
     const res = await GET(this.url + supl, opts)
     const res_t = Deserialize(res, this)
-    for (const r of res_t) {
-      r[OldPk] = this.pk.map(k => (r as any)[k])
-    }
     if (opts.exact_count && res[sym_count]) res_t[sym_count] = res[sym_count]
     return res_t
   }
@@ -171,9 +172,6 @@ export abstract class Model {
     })
 
     const res_t = Deserialize((await res.json()), this) as T[]
-    for (const r of res_t) {
-      r[OldPk] = this.pk.map(k => (r as any)[k])
-    }
     return res_t
   }
 
@@ -193,7 +191,6 @@ export abstract class Model {
 
     const payload = (await res.json())[0]
     const n = Deserialize(payload, this[Cons])
-    n[OldPk] = this[Cons].pk.map(k => (this as any)[k])
     return n
   }
 
