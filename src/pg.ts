@@ -360,7 +360,7 @@ async function run() {
     return await val.save()
   }`)
 
-    out.write(`\n\n  static create(defs: {${create_def.join(", ")}}) {
+    out.write(`\n\n  static create<T extends ${camelcase(table_name)}>(this: new () => T, defs: {${create_def.join(", ")}}) {
     const val = new this()
     Object.assign(val, defs)
     return val
