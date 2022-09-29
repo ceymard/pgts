@@ -129,7 +129,7 @@ export const OldPk = Symbol("oldpk")
 
 
 export abstract class Model {
-  abstract get [Cons](): typeof Model;
+  get [Cons](): typeof Model { return this.constructor as any }
   [OldPk]!: any[]
   static url = ""
   static pk: string[] = []

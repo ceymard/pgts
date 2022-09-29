@@ -301,7 +301,7 @@ async function run() {
     out.write("export class ")
     out.write(camelcase(table_name))
     out.write(" extends Model {\n")
-    out.write(`  get [Cons]() { return ${camelcase(table_name)} }\n`)
+    // out.write(`  get [Cons]() { return ${camelcase(table_name)} }\n`)
     out.write(`  static url = "/pg/${table_name}"\n`)
 
     const indices = r.attributes.filter(a => a.is_primary).map(a => a.attname)
@@ -354,7 +354,7 @@ async function run() {
       out.write("\n")
     }
     // log(create_def.join(', '))
-    out.write(`\n  static async createInDb(defs: {${create_def.join(", ")}}) {
+    out.write(`\n  static async createInDb<T extends ${camelcase(table_name)}>(this: new () => T, defs: {${create_def.join(", ")}}): Promise<T> {
     const val = new this()
     Object.assign(val, defs)
     return await val.save()
