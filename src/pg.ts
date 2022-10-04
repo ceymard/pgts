@@ -420,7 +420,7 @@ async function run() {
         args = args.slice(0, idx)
         names = names.slice(0, idx)
         // out.write('---' + JSON.stringify({names: resnames, args: resargs}))
-        result = `{${resargs.map((t, i) => `${resnames[i]}: ${t[0]}${!notnulls[i] ? " | null" : ""}`).join(", ")}}[]`
+        result = `{${resargs.map((t, i) => `"${resnames[i]}": ${t[0]}${!notnulls[i] ? " | null" : ""}`).join(", ")}}[]`
       }
     } else if ((therow.arg_modes ?? []).includes("t")) {
       const idx = therow.arg_modes.indexOf("t")
