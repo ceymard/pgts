@@ -177,6 +177,7 @@ export const type_maps = new Map<string, [string, string]>()
   .set("timestamp", ["Date", "Date"])
   .set("timestamptz", ["Date", "Date"])
   .set("hstore", ["Map<string, string>", "HstoreSerializer"])
+  .set("tsvector", ["string", "string"])
 
 
 function handle_udt_name(s: string): [string, string] {
@@ -325,7 +326,7 @@ async function run() {
 
       const values = await get_values(c, table_name, col)
       const [udt_name, serial] = handle_udt_name(col.typname)
-      let final_type = values ?? udt_name
+      let final_type = values || udt_name
       if (!col.attnotnull)
         final_type += " | null"
 
