@@ -12,6 +12,154 @@ import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize } fro
  * BEWARE THAT CODE MAY DISAPPEAR IF THE CORRESPONDING TABLE CHANGES ITS NAME
  */
 
+function _csv_obj(model: typeof Model) {
+  return function (str: string) {
+    let in_quote = false
+    let field_idx = 0
+    let res: any = {}
+    let cols = model.columns
+
+    if (str[0] !== '(') throw new Error("not an object")
+    loop: for (let i = 1, start = 1, l = str.length; i < l; i++) {
+      const ch = str[i]
+      switch (ch) {
+        case '"':
+          if (in_quote === false) {
+            in_quote = true
+          } else {
+            if (str[i+1] === '"') {
+              i++
+              continue
+            } else {
+              in_quote = false
+            }
+          }
+        case ')':
+        case ',':
+          let word = start === i ? null : str.slice(start, i)
+          if (word != null && word[0] === '"') word = word.slice(1, -1)
+          start = i + 1
+          const col = cols[field_idx++]
+          word = model.csv_helper[col]?.(word) ?? word
+          res[col] = word
+      }
+    }
+    return res
+  }
+}
+
+function _csv_array(model?: typeof Model) {
+  let obj = model ? _csv_obj(model) : null
+
+  return function _csv_array(a: any) {
+    if (typeof a !== "string") return a
+    if (a[0] === "[") return JSON.parse(a)
+    if (a[0] !== "{") throw new Error("unknown array type")
+    a = a.slice(1, -1)
+
+    let in_quote = false
+    let res: any[] = []
+
+    for (let i = 0, start = 0, l = a.length; i <= l; i++) {
+      const ch = a[i]
+      switch (ch) {
+        case '"':
+          if (!in_quote) {
+            in_quote = true
+          } else {
+            if (a[i+1] === '"') {
+              i++
+              continue
+            } else {
+              in_quote = false
+            }
+          }
+          continue
+        case ',':
+        case undefined:
+          if (in_quote) continue
+          let item: any = start === i ? null : a.slice(start, i)
+          if (item != null && item[0] === '"') item = item.slice(1, -1).replace(/""/g, '"') // unquote
+          start = i + 1
+          if (obj) {
+            item = obj(item)
+          }
+          res.push(item)
+      }
+    }
+
+    return res
+  }
+}
+
+function _csv_number(a: any) {
+  if (a == null) return null
+  return Number(a)
+}
+
+function _csv_boolean(a: any) {
+  if (a == null) return null
+  return a[0] === "t" ? true : false
+}
+
+async function uncsv(res: Response, model?: typeof Model): Promise<any> {
+  const txt = await res.text()
+  const objs: any[] = []
+  let headers: string[] = undefined!
+  let line: (string | null)[] = []
+
+  let i = 0
+  let start = 0
+  let len = txt.length
+  let in_quote = false
+  let line_non_null = false
+
+  for (; i < len + 1; i++) {
+    let c = txt[i]
+    switch (c) {
+      case '"':
+        if (in_quote) {
+          if (txt[i+1] === '"') {
+            i++
+          } else {
+            in_quote = false
+          }
+        } else {
+          in_quote = true
+        }
+        continue
+      case undefined:
+      case ',':
+      case '\n':
+        if (in_quote) continue
+        let word: string | null = null
+        if (i > start) {
+          word = txt[start] === '"' ? txt.slice(start + 1, i - 1) : txt.slice(start, i)
+          word = word.replace(/""/g, '"')
+          line_non_null = true
+        }
+        start = i + 1
+        line.push(word)
+
+        if (c === '\n' || c === undefined) {
+          if (!line_non_null) continue // ignore empty lines
+          if (!headers) {
+            headers = line as string[]
+            line = []
+            continue
+          } else {
+            let obj = headers.reduce((acc, head, idx) => (acc[head] = model?.csv_helper[head]?.(line[idx]) ?? line[idx], acc), {} as any)
+            objs.push(obj)
+          }
+          line = []
+        }
+        continue
+    }
+  }
+
+  return objs
+}
+
 function pad(v: number): string {
   return v > 0 && v < 10 ? "0" + v : "" + v
 }
@@ -49,10 +197,10 @@ export type RequestCount = {total: number, first: number, last: number}
 
 function to_update_arg(v: any) {
   if (v == null) return "is.null"
-  if (v instanceof Date) return `eq.${v.toJSON()}`
+  if (v instanceof Date) return `eq.${encodeURIComponent(v.toJSON())}`
   // if (typeof v === "string") return `eq."${v.replace(/"/g, "\\\"")}"`
   if (typeof v === "boolean") return `is.${v}`
-  return `eq.${v}`
+  return `eq.${encodeURIComponent(v)}`
 }
 
 export function FETCH(input: RequestInfo, init?: RequestInit): Promise<Response> {
@@ -67,17 +215,17 @@ export function FETCH(input: RequestInfo, init?: RequestInit): Promise<Response>
 }
 
 
-export function GET(url: string, opts: { exact_count?: boolean } = { }) {
+export function GET(url: string, opts: { exact_count?: boolean, model?: typeof Model } = { }) {
   return FETCH(url, {
     method: "GET",
     headers: {
-      Accept: "application/json",
+      Accept: "text/csv",
       "Content-Type": "application/json",
       ...(opts.exact_count ? { Prefer: "count=exact" } : {}),
     },
     credentials: "include"
   }).then(async res => {
-    const result = await res.json()
+    const result = await uncsv(res, opts.model)
     const head = res.headers.get("Content-Range")
     if (opts.exact_count && head) {
       const [strbegin, strtotal] = head.split("/")
@@ -109,17 +257,17 @@ export function DELETE(url: string) {
 
 
 
-export async function POST(url: string, body: any = {}): Promise<any> {
+export async function POST(url: string, body: any = {}, opts: { model?: typeof Model } = {}): Promise<any> {
   return FETCH(url, {
     method: "POST",
     headers: {
-      Accept: "application/json",
+      Accept: "text/csv",
       "Content-Type": "application/json"
     },
     credentials: "include",
     body: body
   }).then(res => {
-    return res.json()
+    return uncsv(res, opts.model)
   })
 }
 
@@ -133,6 +281,8 @@ export abstract class Model {
   [OldPk]!: any[]
   static url = ""
   static pk: string[] = []
+  static csv_helper: any = {}
+  static columns: string[] = []
 
   static OnDeserialized(inst: Model) {
     inst[OldPk] = this.pk.map(k => (inst as any)[k])
@@ -140,7 +290,7 @@ export abstract class Model {
 
   static async get<T extends Model>(this: ModelMaker<T>, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<T[] & {[sym_count]: RequestCount}> {
     // const ret = this as any as (new () => T)
-    const res = await GET(this.url + supl, opts)
+    const res = await GET(this.url + supl, { ...opts, model: this })
     const res_t = Deserialize(res, this)
     if (opts.exact_count && res[sym_count]) res_t[sym_count] = res[sym_count]
     return res_t

@@ -311,12 +311,13 @@ async function run() {
       out.write("  [OldPk]: any[] = undefined as any\n")
     }
 
+    const csv_helpers: {[name: string]: string} = {}
     const create_def = [] as string[]
     const seen = new Set<string>()
     for (const col of r.attributes) {
       if (seen.has(col.attname)) continue
       seen.add(col.attname)
-      const colname = col.attname.match(/\s+/) ? `"${col.attname}"` : col.attname
+      const colname = col.attname.match(/[\s']+/) ? `"${col.attname}"` : col.attname
       if (col.comment) {
         out.write("  /**\n")
         out.write(col.comment.split("\n").map(c => `   * ${c}`).join("\n"))
@@ -326,6 +327,15 @@ async function run() {
 
       const values = await get_values(c, table_name, col)
       const [udt_name, serial] = handle_udt_name(col.typname)
+
+      if (udt_name === "number") {
+        csv_helpers[colname] = "_csv_number"
+      } else if (udt_name === "boolean") {
+        csv_helpers[colname] = "_csv_boolean"
+      } else if (udt_name[udt_name.length - 1] === "]") {
+        csv_helpers[colname] = `_csv_array(${udt_name[0].match(/[A-Z]/) ? serial : ""})`
+      }
+
       let final_type = values || udt_name
       if (!col.attnotnull)
         final_type += " | null"
@@ -354,6 +364,13 @@ async function run() {
       create_def.push(`${colname}${col.default || !col.attnotnull ? "?" : ""}: ${final_type}`)
       out.write("\n")
     }
+
+    if (Object.keys(csv_helpers).length > 0) {
+      out.write(`\n  static csv_helper = { ${Object.entries(csv_helpers).map(([key, val]) => `${key}: ${val}`).join(", ")} }\n\n`)
+    }
+
+    out.write(`\n  static columns = [${r.attributes.map(a => JSON.stringify(a.attname)).join(", ")}]\n\n`)
+
     // log(create_def.join(', '))
     out.write(`\n  static async createInDb<T extends ${camelcase(table_name)}>(this: new () => T, defs: {${create_def.join(", ")}}): Promise<T> {
     const val = new this()
@@ -441,7 +458,7 @@ async function run() {
     out.write(`  return POST("/pg/rpc/${therow.name}", JSON.stringify({${(names||[])
       .map((n, i) =>
         orig_args[i] === "date" || orig_args[i] === "timestamp" || orig_args[i] === "timestamptz" ? `${n}: new Date(${n})` : n)
-      .join(", ")}}))\n`)
+      .join(", ")}})${result[0].match(/[A-Z]/) ? `, { model: ${result} }` : ""})\n`)
     // console.error(result)
     if (result !== "Json" && result !== "Jsonb" && result.match(/[A-Z]/) && !result.match(/\|/)) {
       out.write(`    .then(v => Deserialize(v, ${serial}))`)
