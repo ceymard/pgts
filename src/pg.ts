@@ -461,10 +461,13 @@ async function run() {
       .join(", ")}})${result[0].match(/[A-Z]/) ? `, { model: ${result} }` : ""})\n`)
     // console.error(result)
     if (result !== "Json" && result !== "Jsonb" && result.match(/[A-Z]/) && !result.match(/\|/)) {
-      out.write(`    .then(v => Deserialize(v, ${serial}))`)
+      out.write(`    .then(v => Deserialize(v, ${serial}))\n`)
+    }
+    if (!result.includes("[]")) {
+      out.write(`    .then(v => Array.isArray(v) ? v[0] : v)\n`)
     }
     // out.write(`  /** !end impl **/\n`)
-    out.write("\n}\n\n")
+    out.write("}\n\n")
   }
 
   await c.end()
