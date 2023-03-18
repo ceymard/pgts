@@ -36,7 +36,7 @@ function _csv_obj(model: typeof Model) {
           }
         case ')':
         case ',':
-          let word = start === i ? null : str.slice(start, i)
+          let word = start === i ? null : ""+str.slice(start, i)
           if (word != null && word[0] === '"') word = word.slice(1, -1)
           start = i + 1
           const col = cols[field_idx++]
@@ -78,13 +78,13 @@ function _csv_array(model?: typeof Model) {
         case ',':
         case undefined:
           if (in_quote) continue
-          let item: any = start === i ? null : a.slice(start, i)
+          let item: any = start === i ? null : ""+a.slice(start, i)
           if (item != null && item[0] === '"') item = item.slice(1, -1).replace(/""/g, '"') // unquote
           start = i + 1
           if (obj) {
             item = obj(item)
           }
-          res.push(item)
+          if (i > 0) res.push(item)
       }
     }
 

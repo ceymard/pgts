@@ -334,6 +334,8 @@ async function run() {
         csv_helpers[colname] = "_csv_boolean"
       } else if (udt_name[udt_name.length - 1] === "]") {
         csv_helpers[colname] = `_csv_array(${udt_name[0].match(/[A-Z]/) ? serial : ""})`
+      } else if (col.typtype === "c") { // user created type
+        csv_helpers[colname] = `_csv_obj(${serial})`
       }
 
       let final_type = values || udt_name
