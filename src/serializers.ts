@@ -25,6 +25,10 @@ export class Serializer<T = any> implements ISerializable {
 
 const S = Serializer
 
+export function arr(target: any, key: string) {
+
+}
+
 export const str = new S<string>(
   s => s == null ? s : String(s),
   s => s == null ? s : String(s)
@@ -56,7 +60,47 @@ export const hstore = new S<Map<string, string>>(
   function deserialize_hstore(h) {
     if (h == null) return null
     const res = new Map<string, string>()
-    console.warn("hstore deserializing not implemented")
+    let in_quote = false
+    let key = ""
+    let start = 0
+    for (let i = 0, l = h.length; i <= l; i++) {
+      const ch = h[i]
+      if (in_quote && ch !== '"') continue
+
+      switch (ch) {
+        case "\"": {
+          if (!in_quote) {
+            in_quote = true
+            continue
+          } else {
+            if (h[i+1] === "\"") {
+              i++
+              continue
+            } else {
+              in_quote = false
+            }
+          }
+          continue
+        }
+        case "=": {
+          if (h[i+1] === ">") {
+            key = "" + h.slice(start, i)
+            start = i + 2
+          }
+          continue
+        }
+        case undefined:
+        case ",": {
+          let value = "" + h.slice(start, i)
+          start = i + 1
+          if (value[0] === '"') value = value.slice(1, -1)
+          if (key[0] === '"') key = key.slice(1, -1)
+          res.set(key, value)
+          continue
+        }
+      }
+    }
+
     return res
   }
 )

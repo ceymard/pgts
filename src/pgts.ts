@@ -46,8 +46,7 @@ const cmd = command({
 
     const w = (s: string) => { out.write(s) }
 
-    w(`import { autoserializeAs as a, Deserialize } from "cerialize"\n`)
-    w(`import { s, Model, POST } from "@salesway/pgts"`)
+    w(`import { autoserializeAs as a, Deserialize, s, Model, POST} from "@salesway/pgts"`)
     w("\n\n")
 
     const tables = (await t.get_table_like()).sort((t1, t2) => {
@@ -95,16 +94,6 @@ const cmd = command({
         w("\n")
       }
 
-      // Output create functions, may want to remove that.
-      // {
-      //   out.write("\n")
-
-      //   const jsobj = "{" + t.columns.filter(c => !c.isSystem).map(c => `${c.name}${c.isNullable ? "?" : ""}: ${c.type.jsName}`).join(", ") + "}"
-
-      //   out.write(`    static async createInDb = Model._createInDb as (init: ${jsobj}) => Promise<${t.jsName}>\n`)
-      //   out.write(`    static create = Model._create as (init: ${jsobj}) => Promise<${t.jsName}>\n`)
-      // }
-
       w("}\n")
     }
 
@@ -113,12 +102,6 @@ const cmd = command({
     for (let fn of fns) {
       if (!schemas.has(fn.schema)) continue
       console.error("fn", `${fn.schema}.${fn.name}`)
-
-      // for (let a of fn._all_args) {
-      //   console.error(a.name, `:`, a.type.jsTypeNameExp)
-      // }
-      // console.error(fn._pg_proc.proargnames)
-      // console.error(fn._pg_proc.proallargtypes)
 
       w(`\n\n`)
       w(`export function ${fn.name}(`)

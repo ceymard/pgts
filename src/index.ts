@@ -1,5 +1,6 @@
 
-import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize, __TypeMap } from "cerialize"
+import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize, __TypeMap, ISerializable } from "cerialize"
+export * from "cerialize"
 export * as s from "./serializers"
 
 export type JSONValue =
@@ -10,12 +11,25 @@ export type JSONValue =
     | { [x: string]: JSONValue }
     | JSONValue[]
 
-function _csv_obj(model: typeof Model) {
+interface ConcreteDeserializer {
+  name: string
+  deserialize: (m: any) => any
+}
+
+interface MetaValue {
+  deserializedKey: string
+  deserializedType: ISerializable
+  indexable: false
+  keyName: string
+  serializedKey: string
+  serializedType: ISerializable
+}
+
+function _csv_obj(model: ModelMaker<any>, cols: ConcreteDeserializer[]) {
   return function (str: string) {
     let in_quote = false
     let field_idx = 0
-    let res: any = {}
-    let cols = model.columns
+    let res = new model()
 
     if (str[0] !== '(') throw new Error("not an object")
     loop: for (let i = 1, start = 1, l = str.length; i < l; i++) {
@@ -32,21 +46,24 @@ function _csv_obj(model: typeof Model) {
               in_quote = false
             }
           }
+          continue
         case ')':
         case ',':
           let word = start === i ? null : ""+str.slice(start, i)
           if (word != null && word[0] === '"') word = word.slice(1, -1)
-          start = i + 1
           const col = cols[field_idx++]
-          word = model.csv_helper[col]?.(word) ?? word
-          res[col] = word
+          start = i + 1
+
+          word = col.deserialize?.(word) ?? word
+          res[col.name] = word
       }
     }
+    model.OnDeserialized(res)
     return res
   }
 }
 
-function _csv_array(model?: typeof Model) {
+function _csv_array(model?: ModelMaker<any>) {
   let obj = model ? _csv_obj(model) : null
 
   return function _csv_array(a: any) {
@@ -90,14 +107,23 @@ function _csv_array(model?: typeof Model) {
   }
 }
 
-function _csv_number(a: any) {
-  if (a == null) return null
-  return Number(a)
-}
 
-function _csv_boolean(a: any) {
-  if (a == null) return null
-  return a[0] === "t" ? true : false
+function csv_get_deserializables(model: ModelMaker<any>) {
+  const meta = __TypeMap.get(model) as MetaValue[]
+  const res = meta.map(m => {
+    let deser = m.deserializedType
+    let fn: ConcreteDeserializer = {name: m.keyName, deserialize: m => m}
+    if (__TypeMap.has(deser)) {
+      const _d = deser as ModelMaker<any>
+      let _ = csv_get_deserializables(_d)
+      fn.deserialize = _csv_obj(_d, _)
+    } else if (deser != null && deser.Deserialize) {
+      fn.deserialize = deser.Deserialize!
+    }
+    return fn
+  })
+
+  return res
 }
 
 async function uncsv(res: Response, model?: ModelMaker<any>): Promise<any[]> {
@@ -105,6 +131,9 @@ async function uncsv(res: Response, model?: ModelMaker<any>): Promise<any[]> {
   const objs: any[] = []
   let headers: string[] = undefined!
   let line: (string | null)[] = []
+
+  const des = model ? csv_get_deserializables(model) : []
+  const mpdes = new Map(des.map(d => [d.name, d]))
 
   let i = 0
   let start = 0
@@ -153,9 +182,17 @@ async function uncsv(res: Response, model?: ModelMaker<any>): Promise<any[]> {
                 obj[head] = line[i]
               }
             } else {
+              for (let i = 0, l = headers.length; i < l; i++) {
+                const head = headers[i]
+                const deser = mpdes.get(head)
+                if (deser)
+                obj[deser.name] = deser.deserialize(line[i])
+              }
+
               // should get its deserializers
             }
             // headers.reduce((acc, head, idx) => (acc[head] = model?.csv_helper[head]?.(line[idx]) ?? line[idx], acc), {} as any)
+            console.log(obj, new Error)
             objs.push(obj)
           }
           line = []
@@ -165,32 +202,6 @@ async function uncsv(res: Response, model?: ModelMaker<any>): Promise<any[]> {
   }
 
   return objs
-}
-
-function pad(v: number): string {
-  return v > 0 && v < 10 ? "0" + v : "" + v
-}
-
-/** Date objects are generally created with timezones, and we want to strip out the timezone portion */
-export function format_date_iso(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
-export const HstoreSerializer = {
-  Serialize(hstore: Map<string, string>) {
-    const res: string[] = []
-    for (const [key, obj] of hstore) {
-      res.push(`${key} => ${obj}`)
-    }
-    return res.join(", ")
-  },
-  Deserialize(json: any) {
-    const res = new Map<string, string>()
-    for (const key in json) {
-      res.set(key, json[key])
-    }
-    return res
-  }
 }
 
 export type Json = any
@@ -211,18 +222,15 @@ function to_update_arg(v: any) {
 }
 
 export function FETCH(input: RequestInfo, init?: RequestInit): Promise<Response> {
-  /** !impl FETCH_PRELUDE **/
-  // override here the way fetch should work globally
   return fetch(input, init).then(res => {
     if (res.status < 200 || res.status >= 400)
       return Promise.reject(res)
     return res
   })
-  /** !end impl **/
 }
 
 
-export function GET(schema: string, url: string, opts: { exact_count?: boolean, model?: typeof Model } = { }) {
+export function GET(schema: string, url: string, opts: { exact_count?: boolean, model?: ModelMaker<any> } = { }) {
   return FETCH(url, {
     method: "GET",
     headers: {
@@ -266,7 +274,7 @@ export function DELETE(schema: string, url: string) {
 
 
 
-export async function POST(schema: string, url: string, body: any = {}, opts: { model?: typeof Model } = {}): Promise<any> {
+export async function POST(schema: string, url: string, body: any = {}, opts: { model?: ModelMaker<any> } = {}): Promise<any> {
   return FETCH(url, {
     method: "POST",
     headers: {
@@ -285,7 +293,7 @@ export async function POST(schema: string, url: string, body: any = {}, opts: { 
 
 export abstract class Model {
 
-  get __model(): typeof Model { return this.constructor as any }
+  get __model(): ModelMaker<any> { return this.constructor as any }
   __old_pk: any[] | undefined
   abstract get __pk(): any[] | undefined
 
