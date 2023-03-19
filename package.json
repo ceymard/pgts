@@ -2,9 +2,9 @@
   "name": "@salesway/pgts",
   "version": "0.0.12",
   "description": "",
-  "main": "index.js",
+  "main": "./lib/index.js",
   "bin": {
-    "pgts": "./lib/pg.js"
+    "pgts": "./lib/pgts.js"
   },
   "scripts": {
     "prepublish": "npm run build",
@@ -19,6 +19,7 @@
   "license": "ISC",
   "dependencies": {
     "better-sqlite3": "^7.5.0",
+    "cmd-ts": "^0.12.1",
     "pg": "^8.5.1"
   },
   "devDependencies": {

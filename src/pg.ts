@@ -4,6 +4,7 @@ import { Client } from "pg"
 import { inspect } from "util"
 import * as path from "path"
 import * as fs from "fs"
+import { PgAttribute, PgType } from "./type.js"
 
 const DB = process.argv[2]
 if (!DB) throw new Error("Please give database")
@@ -13,91 +14,6 @@ const SCHEMA = (process.argv[4] || "public")
 export function log(m: any) {
   console.warn(inspect(m, {colors: true, depth: null}))
 }
-
-
-export interface PgType {
-  typname: string
-  typnamespace: string // really number
-  typowner: string // really number
-  typlen: number
-  typbyval: boolean
-  typtype: string
-  typcategory: string
-  typispreferred: boolean
-  typdelim: string
-  typrelid: string // really number
-  typelem: string
-  typarray: string
-  typinput: string
-  typoutput: string
-  typreceive: string
-  typsend: string
-  typmodin: string
-  typmodout: string
-  typanalyze: string
-  typalign: string
-  typstorage: string
-  typnotnull: boolean
-  typbasetype: string // num
-  typtypmod: number
-  typndims: number
-  typcollation: string
-  typdefaultbin: string | null
-  typacl: null | string
-}
-
-
-/**
- * The result type from pgattribute
- */
-export interface PgAttribute {
-  attrelid: number
-  attname: string
-  atttypid: string
-  attstattarget: number
-  attlen: number
-  attnum: number
-  attndims: number
-  attcacheoff: number
-  atttypmod: number
-  attbyval: boolean
-  attstorage: string
-  attalign: string
-  attnotnull: boolean
-  atthasdef: boolean
-  atthasmissing: boolean
-  attidentify: null
-  attisdropped: boolean
-  attislocal: boolean
-  attinhcount: number
-  attcollation: number
-  attacl: null
-  attoptions: null
-}
-
-
-export interface ColumnResult {
-  table_catalog: string
-  table_schema: string
-  table_name: string
-  column_name: string
-  ordinal_position: number
-  column_default: string // expression à parser ?
-  is_nullable: "YES" | "NO"
-  data_type: string // This is what we want !
-  udt_catalog: string
-  udt_schema: string // this is where we would want to go fetch our custom types if we had some
-  udt_name: string // with this name.
-  is_updatable: "YES" | "NO"
-  comment: string | null
-}
-
-
-export interface Parameter {
-  parameter_name: string
-  udt_name: string
-}
-
 
 function camelcase(s: string) {
   return s[0].toUpperCase() + s.slice(1).replace(/_([\w])/g, (match, l) => l.toUpperCase())
