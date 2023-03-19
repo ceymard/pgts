@@ -46,7 +46,7 @@ const cmd = command({
 
     const w = (s: string) => { out.write(s) }
 
-    w(`import { autoserializeAs as a, Deserialize, s, Model, POST} from "@salesway/pgts"`)
+    w(`import { autoserializeAs as a, Deserialize, s, Model, POST } from "@salesway/pgts"`)
     w("\n\n")
 
     const tables = (await t.get_table_like()).sort((t1, t2) => {
@@ -90,7 +90,7 @@ const cmd = command({
       for (let c of t.columns) {
         if (c.isSystem) continue
 
-        www(`@a(${c.type.jsSerializer}) ${c.name}!: ${c.typeName} ${c.isPrimary ? "// [PK]" : ""}`)
+        www(`${`@a(${c.type.jsSerializer})`.padEnd(12, " ")} ${c.name}!: ${c.typeName} ${c.isPrimary ? "// [PK]" : ""}`)
         w("\n")
       }
 
