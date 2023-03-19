@@ -13,7 +13,8 @@ export class Serializer<T = any> implements ISerializable {
     public Serialize: (v: T | null) => any,
     public Deserialize: (v: string | null) => T | null
   ) {
-
+    this.Serialize = (v: any) => v == null ? v : Array.isArray(v) ? v.map(v => Serialize(v)) : Serialize(v)
+    this.Deserialize = (v: any) => v == null ? v : Array.isArray(v) ? v.map(v => Deserialize(v)) : Deserialize(v)
   }
 
   prop(name: string | symbol) {
@@ -25,25 +26,21 @@ export class Serializer<T = any> implements ISerializable {
 
 const S = Serializer
 
-export function arr(target: any, key: string) {
-
-}
-
 export const str = new S<string>(
-  s => s == null ? s : String(s),
-  s => s == null ? s : String(s)
+  s => String(s),
+  s => String(s)
 )
 
 
 export const num = new S<number>(
-  n => n == null ? n : Number(n),
-  n => n == null ? n : Number(n)
+  n => Number(n),
+  n => Number(n)
 )
 
 
 export const bool = new S<boolean>(
-  b => b == null ? b : !!b,
-  b => b == null ? b : !!b
+  b => !!b,
+  b => !!b
 )
 
 export const json = new S<any>(
@@ -52,73 +49,31 @@ export const json = new S<any>(
 )
 
 
-export const hstore = new S<Map<string, string>>(
-  h => h == null ? h : [...h.entries()]
+export const hstore = {
+  Serialize: (h: Map<string, string>) => h == null ? h : [...h.entries()]
     .map(([key, value]) =>
       `"${key.replace(/"/g, '""')}"=>"${value.replace(/"/g, '""')}"`
     ),
-  function deserialize_hstore(h) {
+  Deserialize: function deserialize_hstore(h: {[name: string]: string}) {
     if (h == null) return null
-    const res = new Map<string, string>()
-    let in_quote = false
-    let key = ""
-    let start = 0
-    for (let i = 0, l = h.length; i <= l; i++) {
-      const ch = h[i]
-      if (in_quote && ch !== '"') continue
-
-      switch (ch) {
-        case "\"": {
-          if (!in_quote) {
-            in_quote = true
-            continue
-          } else {
-            if (h[i+1] === "\"") {
-              i++
-              continue
-            } else {
-              in_quote = false
-            }
-          }
-          continue
-        }
-        case "=": {
-          if (h[i+1] === ">") {
-            key = "" + h.slice(start, i)
-            start = i + 2
-          }
-          continue
-        }
-        case undefined:
-        case ",": {
-          let value = "" + h.slice(start, i)
-          start = i + 1
-          if (value[0] === '"') value = value.slice(1, -1)
-          if (key[0] === '"') key = key.slice(1, -1)
-          res.set(key, value)
-          continue
-        }
-      }
-    }
-
-    return res
+    return new Map(Object.entries(h))
   }
-)
+}
 
+function _pad(v: number) { return v < 10 ? "0" + v : "" + v }
 
 /** A date serializer */
 export const date = new S<Date>(
-  function date_to_json_with_tz(date) {
-    if (date == null) return null
-    const tz_offset = date.getTimezoneOffset()
+  function date_to_json_with_tz(d) {
+    if (d == null) return null
+    const tz_offset = d.getTimezoneOffset()
     const tz_sign = tz_offset > 0 ? '-' : '+'
-    const tz_hours = Math.abs(Math.floor(tz_offset / 60)).toString().padStart(2, '0')
-    const tz_minutes = (Math.abs(tz_offset) % 60).toString().padStart(2, '0')
+    const tz_hours = _pad(Math.abs(Math.floor(tz_offset / 60)))
+    const tz_minutes = _pad(Math.abs(tz_offset) % 60)
     const tz_string = `${tz_sign}${tz_hours}:${tz_minutes}`
+    const dt = `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}T${_pad(d.getHours())}:${_pad(d.getMinutes())}:${_pad(d.getSeconds())}`
 
-    const date_string = date.toISOString().replace('Z', tz_string)
-
-    return date_string
+    return `${dt}${tz_string}`
   },
   d => d == null ? d : new Date(d)
 )
