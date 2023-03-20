@@ -3,14 +3,6 @@ import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize, } fr
 export * from "cerialize"
 export * as s from "./serializers"
 
-export type JSONValue =
-    | null
-    | string
-    | number
-    | boolean
-    | { [x: string]: JSONValue }
-    | JSONValue[]
-
 export type Json = any
 export type Jsonb = Json
 

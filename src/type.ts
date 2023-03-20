@@ -471,7 +471,7 @@ r("bool", "boolean", "s.bool")
 r(/^(int|float|numeric|real)/, "number", "s.num")
 r(/date|timestamp/, "Date", "s.date")
 r("hstore", "Map<string, string>", "s.hstore")
-r(/^json/, "any", "s.json")
+r(/^json/, "unknown", "s.json")
 r("void", "void", "")
 
 
