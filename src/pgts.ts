@@ -77,10 +77,7 @@ const cmd = command({
       www(`static schema = "${t.schema}"\n`)
 
       // Primary key
-      if (!t.hasPrimaryKey) {
-        // If we have a view, there is generally no primary key
-        www(`get __pk() { return undefined }\n`)
-      } else {
+      if (t.hasPrimaryKey) {
         www(`get __pk() { return [${t.columns.filter(c => c.isPrimary).map(c => `this.${c.name}`).join(", ")}] }\n`)
       }
 

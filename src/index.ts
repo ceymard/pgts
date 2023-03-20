@@ -87,12 +87,11 @@ export async function POST(schema: string, url: string, body: any = {}, opts: { 
 }
 
 
-
 export abstract class Model {
 
   get __model(): ModelMaker<any> { return this.constructor as any }
   __old_pk: any[] | undefined
-  abstract get __pk(): any[] | undefined
+  get __pk(): any[] | undefined { return undefined }
 
   static url: string = ""
   static schema = "no-schema"
