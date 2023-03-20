@@ -8,8 +8,8 @@
   },
   "scripts": {
     "prepublish": "npm run build",
-    "build": "tsc | wtsc && chmod +x ./lib/pg.js",
-    "watch": "tsc -w | wtsc && chmod +x ./lib/pg.js"
+    "build": "tsc | wtsc && chmod +x ./lib/pgts.js",
+    "watch": "tsc -w | wtsc && chmod +x ./lib/pgts.js"
   },
   "files": [
     "/lib",
@@ -18,12 +18,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "better-sqlite3": "^7.5.0",
     "cmd-ts": "^0.12.1",
     "pg": "^8.5.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.5.0",
     "@types/pg": "^7.14.7",
     "@typescript-eslint/eslint-plugin": "^5.15.0",
     "@typescript-eslint/parser": "^5.15.0",
