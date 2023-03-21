@@ -1,3 +1,5 @@
+import * as util from "util"
+
 export const sym_serializer = Symbol("serializer")
 
 export type JsonValue =
@@ -10,6 +12,11 @@ export type JsonValue =
 
 export type JsonObject = {[name: string]: JsonValue}
 
+declare global {
+  interface Function {
+    [sym_serializer]?: Serializer
+  }
+}
 
 interface Ctor<T = unknown> {
   new(): T;
@@ -21,10 +28,14 @@ export class Action<T = unknown> {
 
   get internal_key(): symbol | string | null { return null }
 
+  /** Clone shallow copies the Action */
   clone(): this {
+    let _this = this
+    // clone() can be called from the context of a decorator function, so we unbox it here to make sure we do have the Action.
+    if (typeof _this === "function") _this = Object.getPrototypeOf(this)
     const clone = Object.create(
-      Object.getPrototypeOf(this),
-      Object.getOwnPropertyDescriptors(this)
+      Object.getPrototypeOf(_this),
+      Object.getOwnPropertyDescriptors(_this)
     )
     return clone
   }
@@ -33,6 +44,7 @@ export class Action<T = unknown> {
     const res = (target: any, prop?: string | symbol) => {
       this.decorate(target, prop)
     }
+    // clone() has to take care of undoing this first
     Object.setPrototypeOf(res, this)
     return res as any // Yeah, we cheat
   }
@@ -43,7 +55,7 @@ export class Action<T = unknown> {
   decorate(target: any, prop?: string | symbol) {
     // when decorating a class, we get its prototype, so we need to check
     // its constructor
-    const ser = Serializer.get(target.prototype, true)
+    const ser = Serializer.get(target, true)
     ser.addAction(this)
   }
 }
@@ -54,21 +66,25 @@ export class ActionOnDeserialize<T> extends Action<T> {
   constructor(public _on_deserialize: OnDeserializedFn<T>) {
     super()
   }
+
+  deserialize(instance: T, json: JsonObject): void {
+    this._on_deserialize(instance, json)
+  }
 }
 
 export function on_deserialize<T>(fn: OnDeserializedFn<T>) {
   return new ActionOnDeserialize(fn).decorator
 }
 
-export type PropSerializerFn<F = unknown, T = unknown> = (v: F, result: JsonObject, instance: T) => JsonValue
+export type PropSerializerFn<F = unknown, T = unknown> = (v: F, result: JsonObject, instance: T) => unknown
 export type PropDeserializerFn<F = unknown, T = unknown> = (value: JsonValue, instance: T, source_object: JsonObject) => F
 
 
 export class PropAction<F = unknown, T = unknown> extends Action<T> {
-  key!: string | symbol
+  prop: string | symbol = ""
   serializeTo: string | null = null
   deserializeFrom: string | null = null
-  default_value?: F
+  private _ignore_null = false
 
   constructor(
     public serializer?: PropSerializerFn<F, T>,
@@ -77,11 +93,11 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
     super()
   }
 
-  get internal_key() { return this.key }
+  get internal_key() { return this.prop }
 
   property(key: string | symbol) {
     const clone = this.clone()
-    clone.key = key
+    clone.prop = key
     if (typeof key === "string") {
       if (!clone.serializeTo) clone.serializeTo = key
       if (!clone.deserializeFrom) clone.deserializeFrom = key
@@ -90,21 +106,42 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
   }
 
   to(key: string | null) {
-    this.serializeTo = key
-    return this.decorator
+    const clone = this.clone()
+    clone.serializeTo = key
+    return clone.decorator
   }
 
   from(key: string | null) {
-    this.deserializeFrom = key
-    return this.decorator
+    const clone = this.clone()
+    clone.deserializeFrom = key
+    return clone.decorator
   }
 
-  deserialize(instance: T, json: JsonObject) {
+  deserialize(instance: T, source: JsonObject) {
+    if (this.deserializer == null) return
 
+    let oval = (source as any)?.[this.deserializeFrom ?? this.prop]
+    if (oval == null) {
+      const curval = (instance as any)?.[this.prop]
+      // There was no value in the original object
+      if (curval == null && !this._ignore_null) {
+        (instance as any)[this.prop] = null
+      }
+    } else {
+      // There was a value, we're now going to deserialize it
+      (instance as any)[this.prop] = this.deserializer(oval, instance, source)
+    }
   }
 
   serialize(instance: T, json: JsonObject) {
+    if (this.serializer == null) return
 
+    let oval = (instance as any)?.[this.prop]
+    if (oval == null) {
+      (json as any)[this.serializeTo ?? this.prop] = null
+    } else {
+      (json as any)[this.serializeTo ?? this.prop] = this.serializer(oval, json, instance)
+    }
   }
 
   /** This method is invoked by the proxies */
@@ -116,7 +153,7 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
 
   /** */
   decorate(target: any, prop: string | symbol): void {
-    this.addTo(target, prop)
+    this.addTo(target.constructor, prop)
   }
 
 }
@@ -127,35 +164,31 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
  */
 export class Serializer<T extends unknown = unknown> {
 
-  constructor(public model: Ctor<T>) {
+  constructor(public model: {new(): T}) {
 
   }
 
-  static get<T>(ctor: Function | {new(...a: any[]): T}, create = false): Serializer<T> {
-    let res = (ctor as Ctor<T>)[sym_serializer]
-    if (res == null) {
-      if (!create) throw new Error("there is no known serializer for this object")
-      res = new Serializer(ctor as Ctor<T>)
+  static get<T>(ctor: Function | {new(): T}, create = false): Serializer<T> {
 
-      const extendparent = (proto: Object) => {
-        if (proto == null) return
-        extendparent(Object.getPrototypeOf(proto))
-        if (proto.hasOwnProperty(sym_serializer)) {
-          for (let a of (proto as Ctor)[sym_serializer].actions) {
+    if (!ctor.hasOwnProperty(sym_serializer)) {
+      if (!create) throw new Error("there is no known serializer for this object")
+      const res = new Serializer<T>(ctor as {new(): T})
+
+      // Check if there was a parent to this class
+      const parent: Object = Object.getPrototypeOf(ctor)
+      if (parent.hasOwnProperty(sym_serializer)) {
+        const parent_ser: Serializer = (parent as any)[sym_serializer]
+        if (parent_ser != null) {
+          for (let a of parent_ser.actions) {
             res.addAction(a)
           }
         }
       }
-      extendparent(Object.getPrototypeOf(ctor))
 
-      Object.defineProperty(ctor, sym_serializer, {
-        value: res,
-        enumerable: false,
-        writable: false,
-      })
+      ;(ctor as Ctor)[sym_serializer] = res
       return res
     }
-    return res
+    return (ctor as Ctor)[sym_serializer] as Serializer<T>
   }
 
   static getFor<T>(obj: T | {new(...a: any[]): T | T[]}) {
@@ -189,12 +222,17 @@ export class Serializer<T extends unknown = unknown> {
   }
 
   serialize(orig: T, res: JsonObject = {}): JsonObject {
+    for (let i = 0, ac = this.actions, l = ac.length; i < l; i++) {
+      ac[i].serialize(orig, res)
+    }
     return res
   }
 
-  deserialize(orig: JsonObject, into: T | null = null): T {
-
-    // Once deserialized, execute the post deserialize hooks
+  deserialize(orig: JsonObject, into: T = new this.model()): T {
+    for (let i = 0, ac = this.actions, l = ac.length; i < l; i++) {
+      ac[i].deserialize(into, orig)
+    }
+    return into!
   }
 
 }
@@ -211,8 +249,31 @@ export class Serializer<T extends unknown = unknown> {
  * @param json Json value that comes from an external source
  * @param kls The class on which we have defined a serializer or an instance in which to deserialize the contents of the json object.
  */
-export function deserialize<T>(json: JsonValue, kls: T | {new() : T}): T {
+export function deserialize<T>(json: unknown[], kls: {new(): T} | T[]): T[]
+export function deserialize<T>(json: unknown, kls: T): T
+export function deserialize<T>(json: unknown, kls: T | {new() : T}): T | T[] {
+  if (Array.isArray(json)) {
+    if (Array.isArray(kls)) {
+      // kls are a bunch of instances
+      if (kls.length !== json.length) throw new Error(`both arrays need to be the same length`)
+      for (let i = 0, l = kls.length; i < l; i++) {
+        // For every member of both arrays, get the serializer for the given destination item and deserialize in place.
+        const ser = Serializer.get(kls[i])
+        ser.deserialize(json[i] as JsonObject, kls[i])
+      }
+      return kls
+    } else {
+      const ser = Serializer.get(kls as Function)
+      const res = new Array(json.length)
+      for (let i = 0, l = res.length; i < l; i++) {
+        res[i] = ser.deserialize(json[i] as JsonObject)
+      }
+      return res as T[]
+    }
+  }
 
+  const ser = Serializer.get<T>(kls as Function)
+  return ser.deserialize(json as JsonObject)
 }
 
 
@@ -221,14 +282,15 @@ export function deserialize<T>(json: JsonValue, kls: T | {new() : T}): T {
  * @param instance the object to serialize
  * @returns null if the object was null, a json object or a json array
  */
-export function serialize<T extends any[]>(instance: T): JsonValue[]
-export function serialize<T>(instance: T): JsonObject
-export function serialize<T>(instance: T): JsonValue {
+export function serialize<T extends any[]>(instance: T): unknown[]
+export function serialize<T>(instance: T): unknown
+export function serialize<T>(instance: T): unknown {
   if (instance == null) return null
   if (Array.isArray(instance)) {
-    const ser = Serializer.get(instance[0].constructor)
+    if (instance.length === 0) return[]
     const res = new Array(instance.length)
     for (let i = 0, l = res.length; i < l; i++) {
+      const ser = Serializer.get(instance[0].constructor)
       res[i] = ser.serialize(instance[i])
     }
     return res
@@ -242,24 +304,24 @@ export function serialize<T>(instance: T): JsonValue {
 ////////////////////////////////////////////////////////////////////////////////////////////
 ////// Basic Actions
 
-function FieldSer<F = unknown, T = unknown>(
+function make_prop_serializer<F = unknown, T = unknown>(
   ser: PropSerializerFn<F, T>,
   deser: PropDeserializerFn<F, T>,
 ) {
   return new PropAction<F, T>(ser, deser).decorator
 }
 
-export const str = FieldSer<string>(function to_str(s) { return String(s) }, function str_from_str(s) { return String(s) })
-export const num = FieldSer<number>(n => Number(n), n => Number(n))
-export const bool = FieldSer<boolean>(b => !!b, b => !!b)
-export const json = FieldSer<JsonValue>(j => j, j => j)
+export const str = make_prop_serializer<string>(function ser_str(s) { return String(s) }, function deser_str(s) { return String(s) })
+export const num = make_prop_serializer<number>(function ser_num(n) { return Number(n) }, function deser_num(n) { return Number(n) })
+export const bool = make_prop_serializer<boolean>(function ser_bool(b) { return !!b }, function deser_bool(b) { return !!b })
+export const as_is = make_prop_serializer<JsonValue>(function ser_as_is(j) { return j }, function deser_as_is(j) { return j })
 
 function _pad(v: number) { return v < 10 ? "0" + v : "" + v }
 
 /**
  * A serializer for date that returns an ISO date understood by most databases, but with its local timezone offset instead of UTC like toJSON() returns.
  */
-export const date = FieldSer<Date>(
+export const date_tz = make_prop_serializer<Date>(
   function date_with_tz_to_json(d) {
     if (d == null) return null
     const tz_offset = d.getTimezoneOffset()
@@ -274,36 +336,53 @@ export const date = FieldSer<Date>(
   function date_with_tz_from_json(d) { return new Date(d as any) }
 )
 
-export const date_utc = FieldSer<Date>(
+export const date_utc = make_prop_serializer<Date>(
   function date_to_utc(d) { return d.toJSON() },
   function date_from_utc(d) { return new Date(d as any) }
 )
 
-export const date_ms = FieldSer<Date>(
+export const date_ms = make_prop_serializer<Date>(
   function date_to_ms(d) { return d.valueOf() },
   function date_from_ms(d) { return new Date(d as any) }
 )
 
-export const date_seconds = FieldSer<Date>(
+export const date_seconds = make_prop_serializer<Date>(
   function date_to_seconds(d) { return d.valueOf() / 1000 },
   function date_from_seconds(d) { return new Date(d as number * 1000) }
 )
 
 export const alias = function (fn: () => {new(...a:any[]): any}) {
-  return FieldSer(
-    o => serialize(o),
+  return make_prop_serializer(
+    o => serialize<unknown>(o),
     o => deserialize(o, fn()),
   )
 }
 
-@on_deserialize(inst => {
-  console.log(inst)
+@on_deserialize(function do_stuff_with(inst) {
+  console.log("just deserialized !", inst)
 })
 class Test {
-  @str property!: string
+  @str property: string = "zboub"
+  @num numprop: number = 0
 }
 
-class Test2 extends Test { }
+class Test2 extends Test {
+  @bool.to("bool2") boolprop: boolean = false
+}
 
-import * as util from "util"
-console.log(util.inspect(Test2.prototype, true, null, true))
+class Test3 extends Test2 {
+  @date_tz dt: Date = new Date()
+}
+
+class Zboubi {
+  @alias(() => Test3) test: Test3 = new Test3()
+}
+
+// const ser = Test3[sym_serializer]
+const des = deserialize([{dt: "2021-04-01"}], Test3)
+console.log(des)
+const t = new Test3()
+console.log(serialize(t))
+console.log(serialize([t]))
+
+console.log(serialize(new Zboubi))
