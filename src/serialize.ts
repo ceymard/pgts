@@ -28,11 +28,16 @@ export class Action<T = unknown> {
 
   get internal_key(): symbol | string | null { return null }
 
+  /** return the Action instance, not the decorator function */
+  protected get real_this() {
+    // clone() can be called from the context of a decorator function, so we unbox it here to make sure we do have the Action.
+    if (typeof this === "function") return Object.getPrototypeOf(this)
+    return this
+  }
+
   /** Clone shallow copies the Action */
   clone(): this {
-    let _this = this
-    // clone() can be called from the context of a decorator function, so we unbox it here to make sure we do have the Action.
-    if (typeof _this === "function") _this = Object.getPrototypeOf(this)
+    let _this = this.real_this
     const clone = Object.create(
       Object.getPrototypeOf(_this),
       Object.getOwnPropertyDescriptors(_this)
@@ -40,19 +45,22 @@ export class Action<T = unknown> {
     return clone
   }
 
+  /**
+   * "transform" the action into a decorator function which is achieved by switching the prototype of said function to the Action object.
+  */
   get decorator(): ((target: any, prop?: string) => void) & this {
     const res = (target: any, prop?: string | symbol) => {
       this.decorate(target, prop)
     }
-    // clone() has to take care of undoing this first
     Object.setPrototypeOf(res, this)
+    Object.assign(res, Function.prototype) // keep the Function methods
     return res as any // Yeah, we cheat
   }
 
   deserialize(instance: T, json: JsonObject) { }
   serialize(instance: T, json: JsonObject) { }
 
-  decorate(target: any, prop?: string | symbol) {
+  protected decorate(target: any, prop?: string | symbol) {
     // when decorating a class, we get its prototype, so we need to check
     // its constructor
     const ser = Serializer.get(target, true)
@@ -81,14 +89,14 @@ export type PropDeserializerFn<F = unknown, T = unknown> = (value: JsonValue, in
 
 
 export class PropAction<F = unknown, T = unknown> extends Action<T> {
-  prop: string | symbol = ""
-  serializeTo: string | null = null
-  deserializeFrom: string | null = null
+  prop!: string | symbol
+  _serialize_to!: string | symbol
+  _deserialize_from!: string | symbol
   private _ignore_null = false
 
   constructor(
-    public serializer?: PropSerializerFn<F, T>,
-    public deserializer?: PropDeserializerFn<F, T>,
+    public _serializer?: PropSerializerFn<F, T>,
+    public _deserializer?: PropDeserializerFn<F, T>,
   ) {
     super()
   }
@@ -98,50 +106,37 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
   property(key: string | symbol) {
     const clone = this.clone()
     clone.prop = key
-    if (typeof key === "string") {
-      if (!clone.serializeTo) clone.serializeTo = key
-      if (!clone.deserializeFrom) clone.deserializeFrom = key
-    }
+    if (!clone._serialize_to) clone._serialize_to = key as string
+    if (!clone._deserialize_from) clone._deserialize_from = key as string
     return clone
   }
 
-  to(key: string | null) {
+  /** Make this action read-only by removing the serializer part. */
+  get RO() {
+    const cl = this.clone()
+    cl._serializer = undefined
+    return cl.decorator
+  }
+
+  /** Make this action write-only by removing the deserializer part. */
+  get WO() {
+    const cl = this.clone()
+    cl._deserializer = undefined
+    return cl.decorator
+  }
+
+  /** Change the serialized field name */
+  to_field(key: string | symbol) {
     const clone = this.clone()
-    clone.serializeTo = key
+    clone._serialize_to = key
     return clone.decorator
   }
 
-  from(key: string | null) {
+  /** Read from another field name */
+  from_field(key: string | symbol) {
     const clone = this.clone()
-    clone.deserializeFrom = key
+    clone._deserialize_from = key
     return clone.decorator
-  }
-
-  deserialize(instance: T, source: JsonObject) {
-    if (this.deserializer == null) return
-
-    let oval = (source as any)?.[this.deserializeFrom ?? this.prop]
-    if (oval == null) {
-      const curval = (instance as any)?.[this.prop]
-      // There was no value in the original object
-      if (curval == null && !this._ignore_null) {
-        (instance as any)[this.prop] = null
-      }
-    } else {
-      // There was a value, we're now going to deserialize it
-      (instance as any)[this.prop] = this.deserializer(oval, instance, source)
-    }
-  }
-
-  serialize(instance: T, json: JsonObject) {
-    if (this.serializer == null) return
-
-    let oval = (instance as any)?.[this.prop]
-    if (oval == null) {
-      (json as any)[this.serializeTo ?? this.prop] = null
-    } else {
-      (json as any)[this.serializeTo ?? this.prop] = this.serializer(oval, json, instance)
-    }
   }
 
   /** This method is invoked by the proxies */
@@ -151,9 +146,39 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
     ser.addAction(clone)
   }
 
-  /** */
-  decorate(target: any, prop: string | symbol): void {
+  /** internal implementation */
+  protected decorate(target: any, prop: string | symbol): void {
     this.addTo(target.constructor, prop)
+  }
+
+  /** internal. */
+  deserialize(instance: T, source: JsonObject) {
+    if (this._deserializer == null) return
+
+    // FIXME : should check for existence with hasOwnProperty
+    let oval = (source as any)?.[this._deserialize_from]
+    if (oval == null) {
+      const curval = (instance as any)?.[this.prop]
+      // There was no value in the original object
+      if (curval == null && !this._ignore_null) {
+        (instance as any)[this.prop] = null
+      }
+    } else {
+      // There was a value, we're now going to deserialize it
+      (instance as any)[this.prop] = this._deserializer(oval, instance, source)
+    }
+  }
+
+  serialize(instance: T, json: JsonObject) {
+    if (this._serializer == null) return
+
+    // FIXME : should check for existence with hasOwnProperty
+    let oval = (instance as any)?.[this.prop]
+    if (oval == null) {
+      (json as any)[this._serialize_to ?? this.prop] = null
+    } else {
+      (json as any)[this._serialize_to ?? this.prop] = this._serializer(oval, json, instance)
+    }
   }
 
 }
@@ -304,24 +329,24 @@ export function serialize<T>(instance: T): unknown {
 ////////////////////////////////////////////////////////////////////////////////////////////
 ////// Basic Actions
 
-function make_prop_serializer<F = unknown, T = unknown>(
+function prop_action<F = unknown, T = unknown>(
   ser: PropSerializerFn<F, T>,
   deser: PropDeserializerFn<F, T>,
 ) {
   return new PropAction<F, T>(ser, deser).decorator
 }
 
-export const str = make_prop_serializer<string>(function ser_str(s) { return String(s) }, function deser_str(s) { return String(s) })
-export const num = make_prop_serializer<number>(function ser_num(n) { return Number(n) }, function deser_num(n) { return Number(n) })
-export const bool = make_prop_serializer<boolean>(function ser_bool(b) { return !!b }, function deser_bool(b) { return !!b })
-export const as_is = make_prop_serializer<JsonValue>(function ser_as_is(j) { return j }, function deser_as_is(j) { return j })
+export const str = prop_action<string>(function ser_str(s) { return String(s) }, function deser_str(s) { return String(s) })
+export const num = prop_action<number>(function ser_num(n) { return Number(n) }, function deser_num(n) { return Number(n) })
+export const bool = prop_action<boolean>(function ser_bool(b) { return !!b }, function deser_bool(b) { return !!b })
+export const as_is = prop_action<JsonValue>(function ser_as_is(j) { return j }, function deser_as_is(j) { return j })
 
 function _pad(v: number) { return v < 10 ? "0" + v : "" + v }
 
 /**
  * A serializer for date that returns an ISO date understood by most databases, but with its local timezone offset instead of UTC like toJSON() returns.
  */
-export const date_tz = make_prop_serializer<Date>(
+export const date_tz = prop_action<Date>(
   function date_with_tz_to_json(d) {
     if (d == null) return null
     const tz_offset = d.getTimezoneOffset()
@@ -336,23 +361,23 @@ export const date_tz = make_prop_serializer<Date>(
   function date_with_tz_from_json(d) { return new Date(d as any) }
 )
 
-export const date_utc = make_prop_serializer<Date>(
+export const date_utc = prop_action<Date>(
   function date_to_utc(d) { return d.toJSON() },
   function date_from_utc(d) { return new Date(d as any) }
 )
 
-export const date_ms = make_prop_serializer<Date>(
+export const date_ms = prop_action<Date>(
   function date_to_ms(d) { return d.valueOf() },
   function date_from_ms(d) { return new Date(d as any) }
 )
 
-export const date_seconds = make_prop_serializer<Date>(
-  function date_to_seconds(d) { return d.valueOf() / 1000 },
+export const date_seconds = prop_action<Date>(
+  function date_to_seconds(d) { return Math.floor(d.valueOf() / 1000) },
   function date_from_seconds(d) { return new Date(d as number * 1000) }
 )
 
 export const alias = function (fn: () => {new(...a:any[]): any}) {
-  return make_prop_serializer(
+  return prop_action(
     o => serialize<unknown>(o),
     o => deserialize(o, fn()),
   )
@@ -367,11 +392,17 @@ class Test {
 }
 
 class Test2 extends Test {
-  @bool.to("bool2") boolprop: boolean = false
+  @bool.to_field("bool2") boolprop: boolean = false
 }
 
 class Test3 extends Test2 {
   @date_tz dt: Date = new Date()
+  @date_ms dts: Date = new Date
+  @date_seconds dtsec: Date = new Date
+}
+
+class Test4 extends Test3 {
+  @bool boolprop: boolean = false
 }
 
 class Zboubi {
@@ -383,6 +414,6 @@ const des = deserialize([{dt: "2021-04-01"}], Test3)
 console.log(des)
 const t = new Test3()
 console.log(serialize(t))
-console.log(serialize([t]))
+console.log(serialize([new Test4]))
 
 console.log(serialize(new Zboubi))
