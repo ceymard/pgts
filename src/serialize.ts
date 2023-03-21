@@ -2,25 +2,12 @@ import * as util from "util"
 
 export const sym_serializer = Symbol("serializer")
 
-export type JsonValue =
-  | null
-  | string
-  | number
-  | boolean
-  | JsonObject
-  | JsonValue[]
-
-export type JsonObject = {[name: string]: JsonValue}
+export type NoArgClassConstructor<T = unknown> = {new(): T}
 
 declare global {
   interface Function {
     [sym_serializer]?: Serializer
   }
-}
-
-interface Ctor<T = unknown> {
-  new(): T;
-  [sym_serializer]: Serializer<T>;
 }
 
 
@@ -57,8 +44,8 @@ export class Action<T = unknown> {
     return res as any // Yeah, we cheat
   }
 
-  deserialize(instance: T, json: JsonObject) { }
-  serialize(instance: T, json: JsonObject) { }
+  deserialize(instance: T, json: object) { }
+  serialize(instance: T, json: object) { }
 
   protected decorate(target: any, prop?: string | symbol) {
     // when decorating a class, we get its prototype, so we need to check
@@ -68,14 +55,14 @@ export class Action<T = unknown> {
   }
 }
 
-export type OnDeserializedFn<T> = (instance: T, json: JsonObject) => unknown
+export type OnDeserializedFn<T> = (instance: T, json: object) => unknown
 
 export class ActionOnDeserialize<T> extends Action<T> {
   constructor(public _on_deserialize: OnDeserializedFn<T>) {
     super()
   }
 
-  deserialize(instance: T, json: JsonObject): void {
+  deserialize(instance: T, json: object): void {
     this._on_deserialize(instance, json)
   }
 }
@@ -84,8 +71,8 @@ export function on_deserialize<T>(fn: OnDeserializedFn<T>) {
   return new ActionOnDeserialize(fn).decorator
 }
 
-export type PropSerializerFn<F = unknown, T = unknown> = (v: F, result: JsonObject, instance: T) => unknown
-export type PropDeserializerFn<F = unknown, T = unknown> = (value: JsonValue, instance: T, source_object: JsonObject) => F
+export type PropSerializerFn<F = unknown, T = unknown> = (v: F, result: object, instance: T) => unknown
+export type PropDeserializerFn<F = unknown, T = unknown> = (value: {}, instance: T, source_object: object) => F
 
 
 export class PropAction<F = unknown, T = unknown> extends Action<T> {
@@ -140,7 +127,7 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
   }
 
   /** This method is invoked by the proxies */
-  addTo(c: Ctor<T>, key: string | symbol) {
+  addTo(c: NoArgClassConstructor, key: string | symbol) {
     const clone = this.property(key)
     const ser = Serializer.get(c, true)
     ser.addAction(clone)
@@ -152,7 +139,7 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
   }
 
   /** internal. */
-  deserialize(instance: T, source: JsonObject) {
+  deserialize(instance: T, source: object) {
     if (this._deserializer == null) return
 
     // FIXME : should check for existence with hasOwnProperty
@@ -169,7 +156,7 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
     }
   }
 
-  serialize(instance: T, json: JsonObject) {
+  serialize(instance: T, json: object) {
     if (this._serializer == null) return
 
     // FIXME : should check for existence with hasOwnProperty
@@ -189,35 +176,27 @@ export class PropAction<F = unknown, T = unknown> extends Action<T> {
  */
 export class Serializer<T extends unknown = unknown> {
 
-  constructor(public model: {new(): T}) {
+  constructor(public model: NoArgClassConstructor<T>) { }
 
-  }
-
-  static get<T>(ctor: Function | {new(): T}, create = false): Serializer<T> {
+  static get<T>(ctor: NoArgClassConstructor, create = false): Serializer<T> {
 
     if (!ctor.hasOwnProperty(sym_serializer)) {
       if (!create) throw new Error("there is no known serializer for this object")
       const res = new Serializer<T>(ctor as {new(): T})
 
-      // Check if there was a parent to this class
-      const parent: Object = Object.getPrototypeOf(ctor)
-      if (parent.hasOwnProperty(sym_serializer)) {
-        const parent_ser: Serializer = (parent as any)[sym_serializer]
-        if (parent_ser != null) {
-          for (let a of parent_ser.actions) {
-            res.addAction(a)
-          }
+      // Check if there is already a serializer defined on some parent type and add its actions
+      const parent_ser = ctor[sym_serializer]
+      if (parent_ser != null) {
+        for (let a of parent_ser.actions) {
+          res.addAction(a)
         }
       }
 
-      ;(ctor as Ctor)[sym_serializer] = res
+      ctor[sym_serializer] = res
       return res
     }
-    return (ctor as Ctor)[sym_serializer] as Serializer<T>
-  }
 
-  static getFor<T>(obj: T | {new(...a: any[]): T | T[]}) {
-
+    return ctor[sym_serializer] as Serializer<T>
   }
 
   /** since actions have internal keys, the Map is used to override actions */
@@ -246,14 +225,14 @@ export class Serializer<T extends unknown = unknown> {
 
   }
 
-  serialize(orig: T, res: JsonObject = {}): JsonObject {
+  serialize(orig: T, res: object = {}): unknown {
     for (let i = 0, ac = this.actions, l = ac.length; i < l; i++) {
       ac[i].serialize(orig, res)
     }
     return res
   }
 
-  deserialize(orig: JsonObject, into: T = new this.model()): T {
+  deserialize(orig: object, into: T = new this.model() as T): T {
     for (let i = 0, ac = this.actions, l = ac.length; i < l; i++) {
       ac[i].deserialize(into, orig)
     }
@@ -274,9 +253,9 @@ export class Serializer<T extends unknown = unknown> {
  * @param json Json value that comes from an external source
  * @param kls The class on which we have defined a serializer or an instance in which to deserialize the contents of the json object.
  */
-export function deserialize<T>(json: unknown[], kls: {new(): T} | T[]): T[]
+export function deserialize<T>(json: unknown[], kls: NoArgClassConstructor<T> | T[]): T[]
 export function deserialize<T>(json: unknown, kls: T): T
-export function deserialize<T>(json: unknown, kls: T | {new() : T}): T | T[] {
+export function deserialize<T>(json: unknown, kls: T | NoArgClassConstructor<T>): T | T[] {
   if (Array.isArray(json)) {
     if (Array.isArray(kls)) {
       // kls are a bunch of instances
@@ -284,21 +263,23 @@ export function deserialize<T>(json: unknown, kls: T | {new() : T}): T | T[] {
       for (let i = 0, l = kls.length; i < l; i++) {
         // For every member of both arrays, get the serializer for the given destination item and deserialize in place.
         const ser = Serializer.get(kls[i])
-        ser.deserialize(json[i] as JsonObject, kls[i])
+        ser.deserialize(json[i], kls[i])
       }
       return kls
     } else {
-      const ser = Serializer.get(kls as Function)
+      if (typeof kls !== "function") throw new Error(`expected either an array of instances or a constructor`)
+      const ser = Serializer.get(kls as NoArgClassConstructor<T>)
       const res = new Array(json.length)
       for (let i = 0, l = res.length; i < l; i++) {
-        res[i] = ser.deserialize(json[i] as JsonObject)
+        res[i] = ser.deserialize(json[i])
       }
       return res as T[]
     }
   }
 
-  const ser = Serializer.get<T>(kls as Function)
-  return ser.deserialize(json as JsonObject)
+  if (json == null || !(json instanceof Object)) throw new Error("input json must be an object")
+  const ser = Serializer.get<T>(kls as NoArgClassConstructor<T>)
+  return ser.deserialize(json)
 }
 
 
@@ -320,7 +301,7 @@ export function serialize<T>(instance: T): unknown {
     }
     return res
   } else {
-    const ser = Serializer.get(instance.constructor)
+    const ser = Serializer.get(instance.constructor as NoArgClassConstructor<T>)
     return ser.serialize(instance)
   }
 }
@@ -339,7 +320,7 @@ function prop_action<F = unknown, T = unknown>(
 export const str = prop_action<string>(function ser_str(s) { return String(s) }, function deser_str(s) { return String(s) })
 export const num = prop_action<number>(function ser_num(n) { return Number(n) }, function deser_num(n) { return Number(n) })
 export const bool = prop_action<boolean>(function ser_bool(b) { return !!b }, function deser_bool(b) { return !!b })
-export const as_is = prop_action<JsonValue>(function ser_as_is(j) { return j }, function deser_as_is(j) { return j })
+export const as_is = prop_action<{}>(function ser_as_is(j) { return j }, function deser_as_is(j) { return j })
 
 function _pad(v: number) { return v < 10 ? "0" + v : "" + v }
 
