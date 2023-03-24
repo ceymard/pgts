@@ -1,7 +1,6 @@
 
-import { autoserializeAs as aa, autoserialize as a, Deserialize, Serialize, } from "cerialize"
-export * from "cerialize"
-export * as s from "./serializers"
+import * as s from "@salesway/scotty"
+export * as s from "@salesway/scotty"
 
 export type Json = any
 export type Jsonb = Json
@@ -86,12 +85,20 @@ export async function POST(schema: string, url: string, body: any = {}, opts: { 
   }).then(r => r.json())
 }
 
-
 export abstract class Model {
 
+  [s.sym_on_deserialized]() {
+    const pk = this.__pk
+    if (pk != null) {
+      this.__old_pk = pk
+    }
+  }
+
+  static pk: string[] = []
+
   get __model(): ModelMaker<any> { return this.constructor as any }
-  __old_pk: any[] | undefined
-  get __pk(): any[] | undefined { return undefined }
+  __old_pk: {[name: string]: any} | undefined
+  get __pk(): {[name: string]: any} | undefined { return undefined }
 
   static url: string = ""
   static schema = "no-schema"
@@ -109,9 +116,9 @@ export abstract class Model {
   static async get<T extends Model>(this: ModelMaker<T>, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<T[] & {[sym_count]: RequestCount}> {
     // const ret = this as any as (new () => T)
     const res = await GET(this.schema, this.url + supl, { ...opts, })
-    const res_t = Deserialize(res, this)
-    if (opts.exact_count && (res as any)[sym_count]) res_t[sym_count] = (res as any)[sym_count]
-    return res_t
+    const res_t = s.deserialize(res, this)
+    if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
+    return res_t as any
   }
 
   static async remove<T extends Model>(this: ModelMaker<T>, supl: string) {
@@ -137,10 +144,10 @@ export abstract class Model {
       method: "POST",
       headers: heads,
       credentials: "include",
-      body: JSON.stringify(models.map(m => Serialize(m, this)))
+      body: JSON.stringify(models.map(m => s.serialize(m)))
     })
 
-    const res_t = Deserialize((await res.json()), this) as T[]
+    const res_t = s.deserialize((await res.json() as unknown[]), this) as T[]
     return res_t
   }
 
@@ -156,11 +163,11 @@ export abstract class Model {
       method: method,
       headers: heads,
       credentials: "include",
-      body: JSON.stringify(Serialize(this, this.__model))
+      body: JSON.stringify(s.serialize(this))
     })
 
     const payload = (await res.json())[0]
-    const n = Deserialize(payload, this.__model)
+    const n = s.deserialize(payload, this.__model)
     return n
   }
 
@@ -184,8 +191,8 @@ export abstract class Model {
     if (!pk || pk.length === 0 || !this.__old_pk) {
       throw new Error("can't instance-update an item without primary key")
     }
-    for (let i = 0; i < pk.length; i++) {
-      parts.push(`${pk[i]}=${to_update_arg(this.__old_pk[i])}`)
+    for (let x in pk) {
+      parts.push(`${x}=${to_update_arg(this.__old_pk[x])}`)
     }
 
     if (keys.length) {
@@ -201,8 +208,8 @@ export abstract class Model {
       throw new Error("can't instance-delete an item without primary key")
     }
     const parts: string[] = []
-    for (const pk of this.__pk) {
-      parts.push(`${pk}=${to_update_arg((this as any)[pk])}`)
+    for (const x in this.__pk) {
+      parts.push(`${x}=${to_update_arg((this as any)[this.__pk[x]])}`)
     }
     return FETCH(`${cst.url}?${parts.join("&")}`, {
       method: "DELETE",

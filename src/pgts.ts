@@ -28,7 +28,24 @@ const cmd = command({
     console.error(`connected to ${opts.uri}`)
     console.error(`using schemas ${opts.schemas}`)
     let out: NodeJS.WritableStream = process.stdout
+
+    let impl_blocks = new Map<string, string>()
+
     if (opts.out != null && opts.out !== "-") {
+      try {
+        const original = fs.readFileSync(opts.out, "utf-8")
+        const re_block = /\/\*\*\s*!impl\s+([^\s]+)\s*\*\*\/([^]*?)\/\*\*\s*!end [^]*?\*\*\//gm
+        // const re_block = /impl/gm
+        // const re_block = /!impl\s+([^\s])/
+
+        do {
+          const m = re_block.exec(original)
+          if (m == null) break
+          if (m[2].trim()) impl_blocks.set(m[1].trim(), m[2])
+        } while (true)
+
+      } catch { }
+
       out = fs.createWriteStream(opts.out, "utf-8")
     }
 
@@ -46,8 +63,17 @@ const cmd = command({
 
     const w = (s: string) => { out.write(s) }
 
-    w(`import { autoserializeAs as a, Deserialize, s, Model, POST } from "@salesway/pgts"`)
-    w("\n\n")
+    w(`import { s, Model, POST } from "@salesway/pgts"\n`)
+    w("\n")
+
+    const header = impl_blocks.get("FILE_HEADER")
+    w("/** !impl FILE_HEADER **/")
+    if (header) {
+      w(header)
+    } else {
+      w("\n")
+    }
+    w("/** !end impl FILE_HEADER **/\n\n")
 
     const tables = (await t.get_table_like()).sort((t1, t2) => {
       if (t1.schema < t2.schema) return -1
@@ -67,7 +93,7 @@ const cmd = command({
       if (!schemas.has(t.schema)) continue
       if (t.isSystem) continue
 
-      console.error(`${t.displayKind} ${t.schema}.${t.name}`)
+      // console.error(`${t.displayKind} ${t.schema}.${t.name}`)
 
       w("\n")
       ww(`export class ${t.jsName} extends Model {\n`)
@@ -78,18 +104,34 @@ const cmd = command({
 
       // Primary key
       if (t.hasPrimaryKey) {
-        www(`get __pk() { return [${t.columns.filter(c => c.isPrimary).map(c => `this.${c.name}`).join(", ")}] }\n`)
+        www(`static pk = [${t.primary_keys.map(p => `"${p.name}"`).join(", ")}]\n`)
+        www(`get __pk() { return {${t.primary_keys.map(c => `${c.name}: this.${c.name}`).join(", ")}} }\n`)
       }
 
       w("\n")
 
-      // Columns
-      for (let c of t.columns) {
-        if (c.isSystem) continue
 
-        www(`${`@a(${c.type.jsSerializer})`.padEnd(12, " ")} ${c.name}!: ${c.typeName} ${c.isPrimary ? "// [PK]" : ""}`)
+      const columns = t.columns.filter(c => !c.isSystem)
+
+      let maxlen = Math.max(...columns.map(c => c.type.jsSerializer.length)) + 1
+      if (maxlen % 2 === 0) maxlen += 1
+
+      // Columns
+      for (let c of columns) {
+        let default_value = c.defaultExp
+
+        www(`${`@${c.type.jsSerializer}`.padEnd(maxlen, " ")} ${c.name}${default_value ? "" : "!"}: ${c.typeName}${!default_value ? "": ` = ${default_value}`}${c.isPrimary ? " // [PK]" : ""} // ${c.default_exp}`)
         w("\n")
       }
+
+      const cls_block = impl_blocks.get(t.jsName)
+      w(`\n  /** !impl ${t.jsName} **/`)
+      if (cls_block) {
+        w(cls_block)
+      } else {
+        w("\n  ")
+      }
+      w(`/** !end impl ${t.jsName} **/\n\n`)
 
       w("}\n")
     }
@@ -98,7 +140,8 @@ const cmd = command({
 
     for (let fn of fns) {
       if (!schemas.has(fn.schema)) continue
-      console.error("fn", `${fn.schema}.${fn.name}`)
+      if (fn.isSystem || fn.isTrigger) continue
+      // console.error("fn", `${fn.schema}.${fn.name}`)
 
       w(`\n\n`)
       w(`export function ${fn.name}(`)
@@ -106,7 +149,7 @@ const cmd = command({
       w(`): Promise<${fn.returnTypeExp}${fn.returnsSet ? "[]" : ""}> {\n`)
       w(`  return POST("${fn.schema}", "${POSTGREST_PATH}/rpc/${fn.name}", JSON.stringify({${fn.args.map(a => a.name).join(", ")}}))\n`)
       if (fn._return_type.name !== "record" && fn.returnType.isComposite) {
-        w(`    .then(result => Deserialize(result, ${fn.returnType.jsSerializer}))\n`)
+        w(`    .then(result => s.deserialize(result${fn.returnsSet || fn.returnType.isArray ? " as unknown[]" : ""}, ${fn.returnType.jsName}))\n`)
       }
       if (!fn.returnsSet && !fn.returnType.isArray) {
         w(`    .then(result => Array.isArray(result) ? result[0] : result)\n`)

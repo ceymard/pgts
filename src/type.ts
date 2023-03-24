@@ -129,6 +129,16 @@ export interface PgAttribute {
   attoptions: null
 }
 
+export interface PgAttrdef {
+  oid: Oid
+  /** references pg_class.oid */
+  adrelid: Oid
+  /** references pg_attribute.attnum */
+  adnum: number
+  /** pg_node_tree */
+  adbin: string
+}
+
 /**
  * https://www.postgresql.org/docs/current/catalog-pg-description.html
  */
@@ -388,12 +398,20 @@ export class PgtsType {
 
   static map = new Map<string, PgtsType>()
 
-  private static basic_types: {regexp: RegExp, jsname: string | ((s: string) => string), serializer: string | ((s: string) => string)}[] = []
-  static registerBasicType(regexp: RegExp | string, jsname: string, serializer: string) {
+  private static basic_types: {regexp: RegExp, jsname: string | ((s: string) => string), serializer: string | ((s: string) => string), default_exp: string}[] = []
+  static registerBasicType(regexp: RegExp | string, jsname: string, serializer: string, default_exp: string) {
     if (typeof regexp === "string") {
       regexp = new RegExp("^" + regexp + "$")
     }
-    this.basic_types.push({regexp, jsname, serializer})
+    this.basic_types.push({regexp, jsname, serializer, default_exp})
+  }
+  static getBasicType(name: string) {
+    for (let ar = PgtsType.basic_types, i = ar.length - 1; i >= 0; i--) {
+      const ser = ar[i]
+      if (ser.regexp.test(name)) {
+        return ser
+      }
+    }
   }
 
   constructor(public _pgtype: PgType, public _pg_namespace: PgNamespace) {
@@ -411,37 +429,35 @@ export class PgtsType {
     if (this._pgtype.typnotnull) return name
     return name + " | " + null
   }
-  get jsName() {
+  get jsName(): string {
 
     let name = this.name
-    if (this.isArray) { name = name.slice(1) }
+    if (this.isArray) {
+      return this._array_of!.jsName + "[]"
+    }
     if (this.isComposite) {
       name = camelcase(name)
     } else {
-      for (let ar = PgtsType.basic_types, i = ar.length - 1; i >= 0; i--) {
-        const ser = ar[i]
-        if (ser.regexp.test(name)) {
-          let name2 = ser.jsname as string
-          if (typeof ser.jsname === "function") {
-            name2 = ser.jsname(name)
-          }
-          name = name2
-          break
-        }
+      const basic = PgtsType.getBasicType(name)
+      if (basic) {
+        if (typeof basic.jsname === "function")
+          name = basic.jsname(name)
+        else
+          name = basic.jsname
       }
 
     }
     // default
-    return name + (this.isArray ? "[]" : "")
+    return name
   }
 
   get jsSerializer(): string {
     if (this.isArray) {
-      return this._array_of!.jsSerializer
+      return this._array_of!.jsSerializer + ".array"
     }
 
     if (this.isComposite) {
-      return this.jsName
+      return `s.embed(() => ${this.jsName})`
     }
 
     let name = this.name
@@ -466,13 +482,13 @@ export class PgtsType {
 }
 
 const r = PgtsType.registerBasicType.bind(PgtsType)
-r("text|name", "string", "s.str")
-r("bool", "boolean", "s.bool")
-r(/^(int|float|numeric|real)/, "number", "s.num")
-r(/date|timestamp/, "Date", "s.date")
-r("hstore", "Map<string, string>", "s.hstore")
-r(/^json/, "unknown", "s.json")
-r("void", "void", "")
+r(/^(text|name|tsvector)/, "string", "s.str", `""`)
+r(/^(int|float|numeric|real)/, "number", "s.num", "0")
+r("bool", "boolean", "s.bool", "false")
+r(/date|timestamp/, "Date", "s.date", "new Date()")
+r("hstore", "Map<string, string>", "s.str.map", "new Map()")
+r(/^json/, "unknown", "s.as_is", "null!")
+r("void", "void", "", "null!")
 
 
 export class PgtsColumn {
@@ -481,7 +497,8 @@ export class PgtsColumn {
   constructor(
     public _pg_attribute: PgAttribute,
     public _pg_description: PgDescription | null,
-    public isPrimary: boolean
+    public isPrimary: boolean,
+    public default_exp: string
   ) {
     this.type = PgtsType.map.get(_pg_attribute.atttypid)!
   }
@@ -492,6 +509,27 @@ export class PgtsColumn {
   }
   get isSystem() { return this._pg_attribute.attnum <= 0 }
   get name() { return this._pg_attribute.attname }
+
+  get defaultExp() {
+    const def = this.default_exp
+    if (this.type.isArray) return "[]"
+    if (this.type.isComposite) return `new ${this.type.jsName}()`
+    if (this.isNullable) return "null"
+
+    if (def == null && !this.isPrimary) {
+      const basic = PgtsType.getBasicType(this.type.name)
+      if (basic) return basic.default_exp
+    }
+
+    if (def?.match(/::text$/)) {
+      let r = def.replace(/::text$/, "").slice(1, -1).replace(/''/g, "'")
+      return `'${r}'`
+    } else if (def?.match(/^\d+(\.\d+)?/)) {
+      return def
+    }
+
+    return `undefined! /* ${this.type.name} */ ${def != null ? `/* default: ${def} */` : ""}`
+  }
 }
 
 export class PgtsFunctionArg {
@@ -553,6 +591,7 @@ export class PgtsFunction {
   get name() { return this._pg_proc.proname }
   get schema() { return this._pg_namespace.nspname }
   get isSystem() { return ["information_schema", "pg_catalog"].includes(this.schema) }
+  get isTrigger() { return this.returnType.name === "trigger" }
 
 }
 
@@ -565,6 +604,8 @@ export class PgtsClass {
   type: PgtsType
   columns: PgtsColumn[]
 
+  get primary_keys() { return this.columns.filter(c => c.isPrimary) }
+
   constructor(
     public _pg_class: PgClass,
     public _pg_namespace: PgNamespace,
@@ -573,7 +614,7 @@ export class PgtsClass {
   ) {
     this.type = PgtsType.map.get(_pg_class.reltype)!
     this.type._table = this
-    this.columns = _pg_columns.map(c => new PgtsColumn(c.pg_attribute, c.pg_description, c.is_primary))
+    this.columns = _pg_columns.map(c => new PgtsColumn(c.pg_attribute, c.pg_description, c.is_primary, c.default))
   }
 
   get name() { return this._pg_class.relname }
@@ -631,6 +672,7 @@ export interface GetTableLikeRow {
   pg_indices: PgIndex[],
   columns: {
     pg_attribute: PgAttribute
+    default: string
     pg_description: PgDescription | null
     is_primary: boolean
   }[]
@@ -648,6 +690,7 @@ export async function get_table_like() {
       (SELECT
           json_agg(json_build_object(
             'pg_attribute', row_to_json(attr),
+            'default', (SELECT pg_get_expr(def.adbin, def.adrelid) FROM pg_attrdef def WHERE def.adrelid = cl.oid AND def.adnum = attr.attnum),
             'pg_description', (SELECT row_to_json(dc2) FROM pg_description dc2 WHERE dc2.objoid = cl.oid AND dc2.objsubid = attr.attnum),
             'is_primary', coalesce((SELECT indisprimary FROM pg_index id WHERE id.indrelid = cl.oid AND attr.attnum = any (id.indkey) LIMIT 1), false)
           ) ORDER BY attr.attnum) as columns
