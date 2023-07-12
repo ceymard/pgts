@@ -209,7 +209,7 @@ export abstract class Model {
     }
     const parts: string[] = []
     for (const x in this.__pk) {
-      parts.push(`${x}=${to_update_arg((this as any)[this.__pk[x]])}`)
+      parts.push(`${x}=${to_update_arg((this as any)[x])}`)
     }
     return FETCH(`${cst.url}?${parts.join("&")}`, {
       method: "DELETE",
