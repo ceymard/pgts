@@ -429,6 +429,22 @@ export class PgtsType {
     if (this._pgtype.typnotnull) return name
     return name + " | " + null
   }
+
+  get jsSimpleName(): string {
+    let name = this.name
+    if (this.isArray) {
+      return this._array_of!.jsSimpleName
+    }
+    const basic = PgtsType.getBasicType(name)
+      if (basic) {
+        if (typeof basic.jsname === "function")
+          name = basic.jsname(name)
+        else
+          name = basic.jsname
+      }
+    return name
+  }
+
   get jsName(): string {
 
     let name = this.name
@@ -489,6 +505,7 @@ r(/date|timestamp/, "Date", "s.date", "new Date()")
 r("hstore", "Map<string, string>", "s.str.map", "new Map()")
 r(/^json/, "unknown", "s.as_is", "null!")
 r("void", "void", "", "null!")
+r("tsrange", "pgts.PgRange<Date>", "pgts.range", "null!")
 
 
 export class PgtsColumn {

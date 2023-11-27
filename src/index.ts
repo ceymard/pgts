@@ -1,6 +1,7 @@
 
 import * as s from "@salesway/scotty"
 export * as s from "@salesway/scotty"
+export * from "./types"
 
 export type Json = any
 export type Jsonb = Json
@@ -82,8 +83,30 @@ export async function POST(schema: string, url: string, body: any = {}, opts: { 
     },
     credentials: "include",
     body: body
-  }).then(r => r.json())
+  }).then(r => {
+    if (r.status === 204) return undefined
+    return r.json()
+  })
 }
+
+
+export interface Column {
+  type: string
+
+  is_array?: boolean
+  nullable?: boolean
+  default_xp?: string
+  pk?: boolean
+}
+
+export interface PgtsMeta<M extends Model> {
+  url: string
+  schema: string
+
+  columns: {[name in keyof M]?: Column}
+  pk_fields: string[]
+}
+
 
 export abstract class Model {
 
@@ -94,53 +117,48 @@ export abstract class Model {
     }
   }
 
-  static pk: string[] = []
+  static meta: PgtsMeta<Model>
+  abstract get __meta(): PgtsMeta<this>
 
-  get __model(): ModelMaker<any> { return this.constructor as any }
-  __old_pk: {[name: string]: any} | undefined
+  get __model() { return this.constructor as new() => this }
   get __pk(): {[name: string]: any} | undefined { return undefined }
+  __old_pk: {[name: string]: any} | undefined
 
-  static url: string = ""
-  static schema = "no-schema"
-
-  static csv_helper: any = {}
-  static columns: string[] = []
-
-  static OnDeserialized(inst: Model) {
-    const pk = inst.__pk
-    if (pk) {
-      inst.__old_pk = pk
-    }
+  resetPk() {
+    this.__old_pk = undefined
   }
 
   static async get<T extends Model>(this: ModelMaker<T>, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<T[] & {[sym_count]: RequestCount}> {
     // const ret = this as any as (new () => T)
-    const res = await GET(this.schema, this.url + supl, { ...opts, })
+    const meta = this.meta
+    const res = await GET(meta.schema, meta.url + supl, { ...opts, })
     const res_t = s.deserialize(res, this)
     if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
     return res_t as any
   }
 
   static async remove<T extends Model>(this: ModelMaker<T>, supl: string) {
+    const meta = this.meta
     if (!supl)
       throw new Error("suppl cannot be empty")
     if (supl[0] !== "?") supl = "?" + supl
-    const res = await DELETE(this.schema, this.url + supl)
+    const res = await DELETE(meta.schema, meta.url + supl)
     return res
   }
 
   static async saveMany<T extends Model>(this: ModelMaker<T>, models: T[]) {
     if (!models.length) return []
 
+    const meta = this.meta
     const heads = new Headers({
       Accept: "application/json",
       Prefer: "resolution=merge-duplicates",
       "Content-Type": "application/json",
-      "Accept-Profile": this.schema,
+      "Accept-Profile": meta.schema,
     })
     heads.append("Prefer", "return=representation")
 
-    const res = await FETCH(this.url, {
+    const res = await FETCH(meta.url, {
       method: "POST",
       headers: heads,
       credentials: "include",
@@ -152,11 +170,12 @@ export abstract class Model {
   }
 
   protected async doSave(url: string, method: string): Promise<this> {
+    const meta = this.__meta
     const heads = new Headers({
       Accept: "application/json",
       Prefer: "resolution=merge-duplicates",
       "Content-Type": "application/json",
-      "Accept-Profile": this.__model.schema,
+      "Accept-Profile": meta.schema,
     })
     heads.append("Prefer", "return=representation")
     const res = await FETCH(url, {
@@ -177,7 +196,7 @@ export abstract class Model {
   async save() {
     if (this.__old_pk)
       return this.update()
-    return this.doSave(this.__model.url, "POST")
+    return this.doSave(this.__meta.url, "POST")
   }
 
   /**
@@ -199,7 +218,7 @@ export abstract class Model {
       parts.push(`columns=${keys.join(",")}`)
     }
 
-    return this.doSave(cst.url + (parts.length ? `?${parts.join("&")}` : ""), "PATCH")
+    return this.doSave(this.__meta.url + (parts.length ? `?${parts.join("&")}` : ""), "PATCH")
   }
 
   async delete(): Promise<Response> {
@@ -211,11 +230,12 @@ export abstract class Model {
     for (const x in this.__pk) {
       parts.push(`${x}=${to_update_arg((this as any)[x])}`)
     }
-    return FETCH(`${cst.url}?${parts.join("&")}`, {
+    const meta = this.__meta
+    return FETCH(`${meta.url}?${parts.join("&")}`, {
       method: "DELETE",
       credentials: "include",
       headers: {
-        "Accept-Profile": cst.schema,
+        "Accept-Profile": meta.schema,
       }
     })
   }

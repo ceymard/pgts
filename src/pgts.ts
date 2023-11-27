@@ -63,7 +63,8 @@ const cmd = command({
 
     const w = (s: string) => { out.write(s) }
 
-    w(`import { s, Model, POST } from "@salesway/pgts"\n`)
+    w(`import { s, } from "@salesway/pgts"\n`)
+    w(`import * as pgts from "@salesway/pgts"`)
     w("\n")
 
     const header = impl_blocks.get("FILE_HEADER")
@@ -87,8 +88,11 @@ const cmd = command({
     let last_schema = ""
 
     for (let t of tables) {
-      const ww = (s: string) => w(`${s}`)
-      const www = (s: string) => w(`  ${s}`)
+      const ww =   (s: string) => w(`${s}`)
+      const www =  (s: string) => w(`  ${s}`)
+      const wwww = (s: string) => w(`    ${s}`)
+      const wwwww = (s: string) => w(`      ${s}`)
+      const wwwwww = (s: string) => w(`        ${s}`)
 
       if (!schemas.has(t.schema)) continue
       if (t.isSystem) continue
@@ -96,22 +100,45 @@ const cmd = command({
       // console.error(`${t.displayKind} ${t.schema}.${t.name}`)
 
       w("\n")
-      ww(`export class ${t.jsName} extends Model {\n`)
+      ww(`export class ${t.jsName} extends pgts.Model {\n`)
 
       // Pg url
-      www(`static url = "${POSTGREST_PATH}/${t.name}"\n`)
-      www(`static schema = "${t.schema}"\n`)
+
+      const columns = t.columns.filter(c => !c.isSystem)
+
+
+      www(`static meta: pgts.PgtsMeta<${t.jsName}> = {\n`)
+      wwww(`url: "${POSTGREST_PATH}/${t.name}",\n`)
+      wwww(`schema: "${t.schema}",\n`)
+      wwww(`columns: {\n`)
+      for (let c of columns) {
+        let default_value = c.defaultExp
+
+        wwwww(`${c.name}: {\n`)
+        wwwwww(`type: "${c.type.jsSimpleName}",\n`)
+        if (c.type.isArray) {
+          wwwwww(`is_array: true,\n`)
+        }
+        if (c.isNullable) {
+          wwwwww(`nullable: true,\n`)
+        }
+        if (c.isPrimary) {
+          wwwwww(`pk: true,\n`)
+        }
+        wwwww(`},\n`)
+      }
+      wwww(`},\n`)
+      wwww(`pk_fields: [${t.primary_keys.map(c => `"${c.name}"`).join(", ")}],\n`)
+      www(`}\n`)
 
       // Primary key
       if (t.hasPrimaryKey) {
-        www(`static pk = [${t.primary_keys.map(p => `"${p.name}"`).join(", ")}]\n`)
+        // www(`static pk = [${t.primary_keys.map(p => `"${p.name}"`).join(", ")}]\n`)
         www(`get __pk() { return {${t.primary_keys.map(c => `${c.name}: this.${c.name}`).join(", ")}} }\n`)
       }
+      www(`get __meta(): pgts.PgtsMeta<this> { return (this.constructor as any).meta } `)
 
       w("\n")
-
-
-      const columns = t.columns.filter(c => !c.isSystem)
 
       let maxlen = Math.max(...columns.map(c => c.type.jsSerializer.length)) + 1
       if (maxlen % 2 === 0) maxlen += 1
@@ -147,7 +174,7 @@ const cmd = command({
       w(`export function ${fn.name}(`)
       w(fn.args.map(a => `${a.name}: ${a.type.jsTypeNameExp}`).join(", "))
       w(`): Promise<${fn.returnTypeExp}${fn.returnsSet ? "[]" : ""}> {\n`)
-      w(`  return POST("${fn.schema}", "${POSTGREST_PATH}/rpc/${fn.name}", JSON.stringify({${fn.args.map(a => a.name).join(", ")}}))\n`)
+      w(`  return pgts.POST("${fn.schema}", "${POSTGREST_PATH}/rpc/${fn.name}", JSON.stringify({${fn.args.map(a => a.name).join(", ")}}))\n`)
       if (fn._return_type.name !== "record" && fn.returnType.isComposite) {
         w(`    .then(result => s.deserialize(result${fn.returnsSet || fn.returnType.isArray ? " as unknown[]" : ""}, ${fn.returnType.jsName}))\n`)
       }
