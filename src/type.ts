@@ -660,6 +660,36 @@ export class PgtsClass {
     }
   }
 
+  async getPerms() {
+    const res = await c.query<{role: string, crud: string}>(/* sql */`
+      select
+        grantee as role,
+        string_agg(case
+            when privilege_type = 'INSERT' then 'c'
+            when privilege_type = 'SELECT' then 'r'
+            when privilege_type = 'UPDATE' then 'u'
+            when privilege_type = 'DELETE' then 'd'
+            else ''
+        end
+        , '' order by case
+            when privilege_type = 'INSERT' then 1
+            when privilege_type = 'SELECT' then 2
+            when privilege_type = 'UPDATE' then 3
+            when privilege_type = 'DELETE' then 4
+            else -1
+        end)
+        as crud
+      from information_schema.role_table_grants
+      where
+        table_schema = $2
+        and table_name = $1
+        and grantor <> grantee
+
+      group by table_name, grantee
+      `, [this.name, this.schema]
+    )
+    return res.rows
+  }
 }
 
 

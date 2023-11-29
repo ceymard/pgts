@@ -105,6 +105,32 @@ export interface PgtsMeta<M extends Model> {
 
   columns: {[name in keyof M]?: Column}
   pk_fields: string[]
+  roles?: Roles
+}
+
+export class Roles {
+  _roles = new Map<string, string>()
+
+  anyRoleCan(roles: Set<string>, perms?: string) {
+    for (let r of roles) {
+      const role = this._roles.get(r)
+      if (role == null) continue
+      if (perms == undefined) return true
+      for (let p of perms) {
+        if (role.includes(p)) return true
+      }
+    }
+    return false
+  }
+
+  rol(name: string, perms: string) {
+    this._roles.set(name, perms)
+    return this
+  }
+}
+
+export function rol(name: string, perms: string): Roles {
+  return new Roles().rol(name, perms)
 }
 
 

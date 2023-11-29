@@ -100,12 +100,11 @@ const cmd = command({
       // console.error(`${t.displayKind} ${t.schema}.${t.name}`)
 
       w("\n")
-      ww(`export class ${t.jsName} extends pgts.Model {\n`)
+      ww(`export class ${t.jsName} extends pgts.Model {\n\n`)
 
       // Pg url
 
       const columns = t.columns.filter(c => !c.isSystem)
-
 
       www(`static meta: pgts.PgtsMeta<${t.jsName}> = {\n`)
       wwww(`url: "${POSTGREST_PATH}/${t.name}",\n`)
@@ -128,15 +127,25 @@ const cmd = command({
         wwwww(`},\n`)
       }
       wwww(`},\n`)
+
+      const perms = await t.getPerms()
+      if (perms.length) {
+        wwww(`roles: pgts`)
+        for (let p of perms) {
+          w(`.rol("${p.role}", "${p.crud}")`)
+        }
+        w(`,\n`)
+      }
+
       wwww(`pk_fields: [${t.primary_keys.map(c => `"${c.name}"`).join(", ")}],\n`)
-      www(`}\n`)
+      www(`}\n\n`)
 
       // Primary key
       if (t.hasPrimaryKey) {
         // www(`static pk = [${t.primary_keys.map(p => `"${p.name}"`).join(", ")}]\n`)
         www(`get __pk() { return {${t.primary_keys.map(c => `${c.name}: this.${c.name}`).join(", ")}} }\n`)
       }
-      www(`get __meta(): pgts.PgtsMeta<this> { return (this.constructor as any).meta } `)
+      www(`get __meta(): pgts.PgtsMeta<this> { return (this.constructor as any).meta }\n`)
 
       w("\n")
 
