@@ -3,6 +3,7 @@
   "version": "0.1.1",
   "description": "",
   "main": "./lib/index.js",
+  "engines": {"node": ">=16.0.0"},
   "bin": {
     "pgts": "./lib/pgts.js"
   },
