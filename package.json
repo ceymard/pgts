@@ -1,9 +1,11 @@
 {
   "name": "@salesway/pgts",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "",
   "main": "./lib/index.js",
-  "engines": {"node": ">=16.0.0"},
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "bin": {
     "pgts": "./lib/pgts.js"
   },
