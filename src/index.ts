@@ -154,7 +154,7 @@ export abstract class Model {
     this.__old_pk = undefined
   }
 
-  static async get<T extends Model>(this: ModelMaker<T>, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<T[] & {[sym_count]: RequestCount}> {
+  static async get<T extends Model>(this: ModelMaker<T>, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<T[]> {
     // const ret = this as any as (new () => T)
     const meta = this.meta
     const res = await GET(meta.schema, meta.url + supl, { ...opts, })
