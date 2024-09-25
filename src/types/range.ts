@@ -8,15 +8,11 @@ function to_local_datetime(d: Date) {
 }
 
 function serialize_tz(r: PgRange<any>): unknown {
-	let start = typeof r.start === "object" ? '"' + (r.start.value as Date).toJSON() + '"' : r.start
-	let end = typeof r.end === "object" ? '"' + (r.end.value as Date).toJSON() + '"' : r.end
-	return `${r.start.inclusion}${start},${end}${r.end.inclusion}`
+	return `${r.bounds[0]}${r.start.toJSON()},${r.end.toJSON()}${r.bounds[1]}`
 }
 
 function serialize_local(r: PgRange<any>): unknown {
-	let start = typeof r.start === "object" ? '"' + to_local_datetime(r.start as Date) + '"' : r.start
-	let end = typeof r.end === "object" ? '"' + to_local_datetime(r.end as Date) + '"' : r.end
-	return `${r.start.inclusion}${start},${end}${r.end.inclusion}`
+	return `${r.bounds[0]}${to_local_datetime(r.start)},${to_local_datetime(r.end)}${r.bounds[1]}`
 }
 
 function deserialize_to_local(r: any): PgRange<any> {
@@ -34,7 +30,7 @@ function deserialize_to_local(r: any): PgRange<any> {
 		return new PgRange(
 			start,
 			end,
-			r
+			r[0] + r[r.length - 1]
 		)
 	} else if (typeof r === "object") {
 		// Object ?
@@ -57,12 +53,12 @@ export const tzrange = new s.PropAction(
 
 export class PgRange<T extends {valueOf(): number}> {
 
-	static EMPTY = new PgRange(Infinity, -Infinity)
+	static EMPTY = new PgRange<any>(Infinity, -Infinity)
 
 	get is_empty() {
 		const start = this.start.valueOf()
 		const end = this.end.valueOf()
-		return end < start || start === end && this.bounds === "()"
+		return end < start || start === end && (this.bounds[0] === "(" || this.bounds[1] === ")")
 	}
 
 	constructor(
@@ -111,7 +107,7 @@ export class PgRange<T extends {valueOf(): number}> {
 			return false
 		}
 
-		return this.contains(range.start) || this.contains(range)
+		return this.contains(range.start) || this.contains(range.end)
 			|| range.contains(this.start) || range.contains(this.end)
 	}
 
@@ -155,6 +151,16 @@ export class PgRange<T extends {valueOf(): number}> {
 		if (num instanceof PgRange) {
 
 			const rng = new PgRange(num.start, num.end, num.bounds)
+
+			// Clamping non-overlapping ranges returns an empty range
+			if (this.start > num.end
+				|| num.start > this.end
+				|| num.start === this.end && (num.bounds[0] === "(" || this.bounds[1] === ")")
+				|| num.end === this.start && (num.bounds[1] === ")" || this.bounds[0] === "(")
+			) {
+				return PgRange.EMPTY
+			}
+
 			if (this.start > num.start) {
 				rng.start = this.start
 				rng.bounds = this.bounds[0] + rng.bounds[1]
@@ -185,23 +191,62 @@ export class PgRange<T extends {valueOf(): number}> {
 		return Number.isFinite(this.start.valueOf()) && Number.isFinite(this.end.valueOf())
 	}
 
+	iterateFn(fn: (iter: T) => T): Iterable<T> {
+		let iter = this.start
+		const is_date = this.start instanceof Date
+
+		const st = this.start.valueOf()
+		const en = this.end.valueOf()
+
+		const res: Iterator<T> = {
+			next: () => {
+				const current = iter
+				iter = fn(iter)
+				const val = current.valueOf()
+
+				if (val === st && this.bounds[0] === "(") {
+					return res.next()
+				}
+
+				if (val > en || val === en && this.bounds[1] === ")") {
+					return {
+						value: undefined,
+						done: true,
+					}
+				}
+
+				return {
+					value: current,
+					done: false,
+				}
+			},
+
+		}
+
+		return {
+			[Symbol.iterator]() { return res }
+		}
+	}
+
 	toJSON() {
 		return serialize_local(this)
 	}
 
-	isAfterOrIncludes() {
+	isStrictlyAfter(other: T | PgRange<T>) {
+		const my_start = this.start.valueOf()
+		const other_bound = other instanceof PgRange ? other.bounds[1] : "]"
+		const other_value = other instanceof PgRange ? other.end.valueOf() : other.valueOf()
 
+		return other_value < my_start
+			|| other_value === my_start && (other_bound === ")" || this.bounds[0] === "(")
 	}
 
-	isBeforeOrIncludes() {
+	isStrictlyBefore(other: T | PgRange<T>) {
+		const my_end = this.end.valueOf()
+		const other_bound = other instanceof PgRange ? other.bounds[0] : "["
+		const ot = other instanceof PgRange ? other.start.valueOf() : other.valueOf()
 
-	}
-
-	isStrictlyAfter() {
-
-	}
-
-	isStrictlyBefore() {
-
+		return my_end < ot
+			|| ot === my_end && (other_bound === "(" || this.bounds[1] === ")")
 	}
 }

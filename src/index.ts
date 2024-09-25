@@ -85,7 +85,12 @@ export async function POST(schema: string, url: string, body: any = {}, opts: { 
     body: body
   }).then(r => {
     if (r.status === 204) return undefined
-    return r.json()
+    const ct = r.headers.get("Content-Type")
+    if (ct != null && ct.indexOf("application/json") !== -1) {
+      return r.json()
+    } else {
+      return r.text()
+    }
   })
 }
 

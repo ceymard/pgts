@@ -505,7 +505,8 @@ r(/date|timestamp/, "Date", "s.date", "new Date()")
 r("hstore", "Map<string, string>", "s.str.map", "new Map()")
 r(/^json/, "unknown", "s.as_is", "null!")
 r("void", "void", "", "null!")
-r("tsrange", "pgts.PgRange<Date>", "pgts.range", "null!")
+r(/ts(tz)?range|daterange/, "pgts.PgRange<Date>", "pgts.range", "null!")
+r(/(int[48]|num)range/, "pgts.PgRange<number>", "pgts.range", "null!")
 
 
 export class PgtsColumn {
