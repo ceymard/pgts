@@ -156,7 +156,7 @@ const cmd = command({
       for (let c of columns) {
         let default_value = c.defaultExp
 
-        www(`${`@${c.type.jsSerializer}`.padEnd(maxlen, " ")} ${c.name}${default_value ? "" : "!"}: ${c.typeName}${!default_value ? "": ` = ${default_value}`}${c.isPrimary ? " // [PK]" : ""} // ${c.default_exp}`)
+        www(`${`@(${c.type.jsSerializer})`.padEnd(maxlen, " ")} ${c.name}${default_value ? "" : "!"}: ${c.typeName}${!default_value ? "": ` = ${default_value}`}${c.isPrimary ? " // [PK]" : ""} // ${c.default_exp}`)
         w("\n")
       }
 

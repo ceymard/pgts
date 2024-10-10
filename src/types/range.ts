@@ -64,7 +64,7 @@ export class PgRange<T extends {valueOf(): number}> {
 	constructor(
 		public start: T,
 		public end: T,
-		public bounds = "()",
+		public bounds = "[)",
 	) {
 
 	}
