@@ -33,7 +33,8 @@ export function GET(schema: string, url: string, opts: { exact_count?: boolean }
   return FETCH(url, {
     method: "GET",
     headers: {
-      Accept: "application/json",
+      // Accept: "application/json",
+      "Accept": "application/vnd.pgrst.array+json;nulls=stripped",
       "Content-Type": "application/json",
       "Accept-Profile": schema,
       ...(opts.exact_count ? { Prefer: "count=exact" } : {}),
@@ -271,15 +272,23 @@ export abstract class Model {
     })
   }
 
-  static async createInDb<T extends Model>(this: new () => T, vals: any): Promise<T> {
+  static async createInDb<T extends Model>(this: ModelMaker<T>, defs: any): Promise<T> {
     const val = new this()
-    Object.assign(val, vals)
+    for (const name of Object.keys(this.meta.columns)) {
+      if (defs[name] !== undefined) {
+        val[name as keyof T] = defs[name]
+      }
+    }
     return await val.save()
   }
 
-  static create<T extends Model>(this: new () => T, defs: any) {
+  static create<T extends Model>(this: ModelMaker<T>, defs: any) {
     const val = new this()
-    Object.assign(val, defs)
+    for (const name of Object.keys(this.meta.columns)) {
+      if (defs[name] !== undefined) {
+        val[name as keyof T] = defs[name]
+      }
+    }
     return val
   }
 }
