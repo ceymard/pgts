@@ -239,7 +239,7 @@ export abstract class Model {
     const cst = this.__model
     const pk = this.__pk
 
-    if (!pk || pk.length === 0 || !this.__old_pk) {
+    if (!pk || Object.keys(pk).length === 0 || !this.__old_pk) {
       throw new Error("can't instance-update an item without primary key")
     }
     for (let x in pk) {
@@ -254,8 +254,8 @@ export abstract class Model {
   }
 
   async delete(): Promise<Response> {
-    const cst = this.__model
-    if (!this.__pk || this.__pk.length === 0) {
+    const pk = this.__pk
+    if (!pk || Object.keys(pk).length === 0) {
       throw new Error("can't instance-delete an item without primary key")
     }
     const parts: string[] = []
