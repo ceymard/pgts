@@ -172,9 +172,9 @@ export abstract class Model {
     return res_t as any
   }
 
-  static async getWith<T extends Model>(this: ModelMaker<T>, ...rels: string[]) {
+  static async getWith<T extends Model, MT extends ModelMaker<T>>(this: MT, rels: (keyof MT["meta"]["rels"])[], supl?: string) {
     const meta = this.meta
-    const res = await GET(meta.schema, `${meta.url}?select=*` + rels.map(r => "," + meta.rels[r] + "(*)"))
+    const res = await GET(meta.schema, `${meta.url}?select=*` + rels.map(r => "," + meta.rels[r as any] + "(*)"))
     const res_t = s.deserialize(res, this)
     // if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
     return res_t as any

@@ -334,7 +334,8 @@ class SchemaDetails extends SchemaBase {
           fromIsUnique
         })
 
-        let backName = r.name + (!fromIsUnique && r.name[r.name.length - 1] !== "s" ? "s" : "") + (def.to.length === 1 ? "_by_" + def.strFrom : "")
+        // let backName = r.name + (!fromIsUnique && r.name[r.name.length - 1] !== "s" ? "s" : "") + (def.to.length === 1 ? "_by_" + def.strFrom : "")
+        let backName = r.name + (!fromIsUnique && r.name[r.name.length - 1] !== "s" ? "s" : "") // + (def.to.length === 1 ? "_by_" + def.strFrom : "")
 
         dst.references.push({
           pgtsName: `$${backName}:${r.name}!${def.name}`,
@@ -350,16 +351,16 @@ class SchemaDetails extends SchemaBase {
           fromIsUnique: toIsUnique,
         })
 
-        // r.references.push({
-        //   isMany: true,
-        //   // dst: /** */,
-        //   name: "$test",
-        //   // other_table:
-        // })
       }
 
     }
 
+    for (let r of this.relations.values()) {
+      for (let ref of Map.groupBy(r.references, e => `${e.toTable}.${e.distantName}`)
+        .values().filter(to => to.length > 1).flatMap(r => r)) {
+          ref.distantName = `${ref.distantName}_from_${ref.toColumnsStr}`
+      }
+    }
   })()
 }
 
