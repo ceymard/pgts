@@ -83,7 +83,7 @@ export async function POST(schema: string, url: string, body: any = {}, opts: { 
       "Accept-Profile": schema,
     },
     credentials: "include",
-    body: body
+    body: typeof body !== "string" ? JSON.stringify(body) : body
   }).then(r => {
     if (r.status === 204) return undefined
     const ct = r.headers.get("Content-Type")
@@ -99,19 +99,22 @@ export async function POST(schema: string, url: string, body: any = {}, opts: { 
 export interface Column {
   type: string
 
+  label?: string
+  comment?: string
+
   is_array?: boolean
   nullable?: boolean
   default_xp?: string
   pk?: boolean
 }
 
-export interface PgtsMeta<M extends Model> {
+
+export interface PgtsMeta {
   url: string
   schema: string
-
-  columns: {[name in keyof M]?: Column}
-  pk_fields: string[]
+  pk_fields?: string[]
   roles?: Roles
+  rels: {[name: string]: string}
 }
 
 export class Roles {
@@ -149,8 +152,8 @@ export abstract class Model {
     }
   }
 
-  static meta: PgtsMeta<Model>
-  abstract get __meta(): PgtsMeta<this>
+  static meta: PgtsMeta
+  get __meta(): PgtsMeta { return (this.constructor as any).meta }
 
   get __model() { return this.constructor as new() => this }
   get __pk(): {[name: string]: any} | undefined { return undefined }
@@ -166,6 +169,14 @@ export abstract class Model {
     const res = await GET(meta.schema, meta.url + supl, { ...opts, })
     const res_t = s.deserialize(res, this)
     if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
+    return res_t as any
+  }
+
+  static async getWith<T extends Model>(this: ModelMaker<T>, ...rels: string[]) {
+    const meta = this.meta
+    const res = await GET(meta.schema, `${meta.url}?select=*` + rels.map(r => "," + meta.rels[r] + "(*)"))
+    const res_t = s.deserialize(res, this)
+    // if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
     return res_t as any
   }
 
@@ -273,22 +284,19 @@ export abstract class Model {
   }
 
   static async createInDb<T extends Model>(this: ModelMaker<T>, defs: any): Promise<T> {
-    const val = new this()
-    for (const name of Object.keys(this.meta.columns)) {
-      if (defs[name] !== undefined) {
-        val[name as keyof T] = defs[name]
-      }
-    }
+    const val = s.deserialize(defs, this)
     return await val.save()
   }
 
   static create<T extends Model>(this: ModelMaker<T>, defs: any) {
-    const val = new this()
-    for (const name of Object.keys(this.meta.columns)) {
-      if (defs[name] !== undefined) {
-        val[name as keyof T] = defs[name]
-      }
-    }
-    return val
+    return s.deserialize(defs, this)
+  }
+}
+
+const rels = new WeakMap<typeof Model>()
+
+export function rel(str: string) {
+  return function (proto: (typeof Model)["prototype"], prop: string) {
+
   }
 }

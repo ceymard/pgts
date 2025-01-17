@@ -25,14 +25,19 @@
     "@salesway/scotty": "^0.1.1",
     "ava": "^5.3.1",
     "cmd-ts": "^0.12.1",
-    "pg": "^8.5.1"
+    "extract-pg-schema": "^5.3.4",
+    "js-beautify": "^1.15.1",
+    "kanel": "^3.11.0",
+    "pg": "^8.5.1",
+    "prettier": "^3.4.2"
   },
   "devDependencies": {
+    "@types/js-beautify": "^1.14.3",
     "@types/pg": "^7.14.7",
     "@typescript-eslint/eslint-plugin": "^5.15.0",
     "@typescript-eslint/parser": "^5.15.0",
     "eslint": "^8.11.0",
-    "typescript": "^4.6.2",
+    "typescript": "^5.7.3",
     "wtsc": "^0.1.3"
   }
 }
