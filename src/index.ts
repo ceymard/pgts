@@ -112,7 +112,7 @@ export interface Column {
 export interface PgtsMeta {
   url: string
   schema: string
-  pk_fields?: string[]
+  pk_fields: string[]
   roles?: Roles
   rels: {[name: string]: string}
 }
@@ -174,7 +174,7 @@ export abstract class Model {
 
   static async getWith<T extends Model, MT extends ModelMaker<T>>(this: MT, rels: (keyof MT["meta"]["rels"])[], supl?: string) {
     const meta = this.meta
-    const res = await GET(meta.schema, `${meta.url}?select=*` + rels.map(r => "," + meta.rels[r as any] + "(*)"))
+    const res = await GET(meta.schema, `${meta.url}?select=*` + rels.map(r => "," + meta.rels[r as any] + "(*)").join(""))
     const res_t = s.deserialize(res, this)
     // if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
     return res_t as any

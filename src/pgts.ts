@@ -319,9 +319,10 @@ class SchemaDetails extends SchemaBase {
         const fromIsUnique = !!r.m_indices_by_columns.get(def.strFrom)?.isUnique
 
         const distantName = toIsUnique && def.from.length === 1 ? def.strFrom.replace(/(_id|s)$/, "") : dst.name
+        const hint = toIsUnique && def.from.length === 1 ? def.strFrom : `${dst.name}!${def.strFrom}`
 
         r.references.push({
-          pgtsName: `$${distantName}:${dst.name}!${def.name}`,
+          pgtsName: `$${distantName}:${hint}`,
           distantName,
           toTableObject: dst,
           toTable: def.qualifiedDestination,
