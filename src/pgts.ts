@@ -135,7 +135,7 @@ class SchemaDetails extends SchemaBase {
     type = type.replace(/[^.]+\.|\[\]/g, "")
     return (match(
       [/text|name/, "string"],
-      [/bool/, "boolean"],
+      [/bool(ean)?/, "boolean"],
       [/(big)?int\d*?|numeric|float\d*?/, "number"],
       [/timestamp(tz)?|date/, "Date"],
       [/^jsonb?$/, "any"],
@@ -145,13 +145,15 @@ class SchemaDetails extends SchemaBase {
   getJsParser(type: string) {
     const is_array = type.match(/\[\]/)
     type = type.replace(/[^.]+\.|\[\]/g, "")
-    return (match(
+
+    const res = (match(
       [/text|name/, "s.str"],
-      [/bool/, "s.bool"],
+      [/bool(ean)?/, "s.bool"],
       [/int\d*?|numeric|float\d*?/, "s.num"],
       [/timestamp(tz)?|date/, "s.date"],
       [/^jsonb?$/, "s.as_is"],
     )(type) ?? `s.embed(() => ${CamelCase(type)})`) + (is_array ? ".array" : "")
+    return res
   }
 
   getReturnType(fn: Schema["functions"][number]) {
@@ -287,6 +289,14 @@ class SchemaDetails extends SchemaBase {
       }]
     })
   }))
+
+  functions_for_tables = Map.groupBy(
+    this.functions.values().filter(f => f.parameters.length === 1
+      && this.relations.has(f.parameters[0].type)
+      && !f.returnsSet
+    ),
+    f => f.parameters[0].type
+    )
 
   all_columns = new Map(this.relations.values().flatMap(v => {
     if (v.kind === "compositeType") {
@@ -461,6 +471,8 @@ const cmd = command({
           }`}
 
           ${v.m_columns.values().map(c => c.withDecorators)}
+
+          ${s.functions_for_tables.get(v.tableQualifiedName)?.map(f => `@(${s.getReturnDeser(f)}.ro) ${f.name}!: ${s.getReturnType(f)}`) ?? ""}
 
           ${blocks.show(CamelCase(v.name))}
         }

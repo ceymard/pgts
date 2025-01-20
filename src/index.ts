@@ -147,7 +147,7 @@ export function rol(name: string, perms: string): Roles {
 export type SelectBuilder<T extends Model, MT extends ModelMaker<T>> = {
   [K in keyof MT["meta"]["rels"]]: SelectBuilder<InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>, ReturnType<MT["meta"]["rels"][K]["model"]>>
 } & {
-  fields(...columns: (MT["meta"]["columns"][number])[]): SelectBuilder<T, MT>
+  fields(...columns: (MT["meta"]["columns"][number] | "*")[]): SelectBuilder<T, MT>
   __collect(): string
 }
 
@@ -192,7 +192,7 @@ export abstract class Model {
         return res
       },
       __collect() {
-        return fields.join(",") + more.map(f => f()).join("")
+        return [...fields, ...more.map(f => f())].join(",")
       }
     }
 
@@ -204,7 +204,7 @@ export abstract class Model {
             const mod = value.model()
             _resolved_selector = mod.getSelectorObject()
             more.push(() => {
-              return `,${value.name}(${_resolved_selector!.__collect()})`
+              return `${value.name}(${_resolved_selector!.__collect()})`
             })
           }
           return _resolved_selector
