@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { inspect } from "util"
 import { CompositeTypeAttribute, extractSchemas, Schema, TableColumn, ViewColumn } from "extract-pg-schema"
@@ -169,6 +169,26 @@ class SchemaDetails extends SchemaBase {
     }
   }
 
+  getTryGetDefault(c: TableColumn | ViewColumn) {
+    const def = c.defaultValue
+    if (c.isNullable) {
+      return "null"
+    }
+    if (c.isArray) {
+      return "[]"
+    }
+    if (/'::text$/.test(def)) {
+      return "\"" + def.slice(1, -7).replaceAll("''", "'") + "\""
+    }
+    if (/^\d+(\.\d+)?$/.test(def)) {
+      return Number(def)
+    }
+    if (def === "CURRENT_TIMESTAMP") {
+      return "new Date()"
+    }
+    return "undefined!"
+  }
+
   ////////////////////////////////////////////
   // Functions that we
   functions = new Map(Object.values(this.schemas).flatMap(sc => {
@@ -198,8 +218,8 @@ class SchemaDetails extends SchemaBase {
       /** */
       const m_columns = new Map((tbl.kind === "compositeType" ? [] : tbl.columns).map(c => {
 
-        const fullyTyped = `${c.name}${c.isNullable ? "?" : "!"}: ${this.getJsType(c.expandedType)}` as string
-        const withDecorators = `@(${this.getJsParser(c.expandedType)}) ${c.comment ? `/** ${c.comment} */ ` : ""}${fullyTyped} /* pgtype: ${c.expandedType.replace(/pg_catalog\./, "")}, default: ${c.defaultValue} */`
+        const fullyTyped = `${c.name}: ${this.getJsType(c.expandedType)}${c.isNullable ? " | null" : ""}` as string
+        const withDecorators = `@(${this.getJsParser(c.expandedType)}) ${c.comment ? `/** ${c.comment} */ ` : ""}${fullyTyped} = ${this.getTryGetDefault(c)} /* pgtype: ${c.expandedType.replace(/pg_catalog\./, "")}, default: ${c.defaultValue} */`
 
         return [c.name, ({
           ...c,
@@ -426,13 +446,14 @@ const cmd = command({
         */
         export class ${CamelCase(v.name)} extends p.Model {
 
-          ${v.references.map(r => `@(p.rel("${r.pgtsName}")) @(s.embed(() => ${CamelCase(r.toTableSimpleName)})${!r.toIsUnique ? ".array" : ""}.ro) $${r.distantName}!: ${CamelCase(r.toTableSimpleName)}${!r.toIsUnique ? "[]" : ""}`)}
+          ${v.references.map(r => `@(s.embed(() => ${CamelCase(r.toTableSimpleName)})${!r.toIsUnique ? ".array" : ""}.ro) $${r.distantName}!: ${CamelCase(r.toTableSimpleName)}${!r.toIsUnique ? "[]" : ""}`)}
 
           static meta = {
             url: "/pg/${v.name}",
             schema: "${v.schemaName}",
             pk_fields: [${v.m_primaries.map(p => `"${p.name}"`).join(", ")}]${v.m_primaries.length === 0 ? " as string[]" : ""},
-            rels: {${v.references.map(r => `$${r.distantName}: "${r.pgtsName}"`).join(", ")}},
+            rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", model: () => ${CamelCase(r.toTableObject.name)}}`).join(", ")}},
+            columns: [${[...v.m_columns.values()].map(c => `"${c.name}"`).join(", ")}] as (${[...v.m_columns.values()].map(c => `"${c.name}"`).join(" | ")})[]
           }
 
           ${v.m_primaries.length === 0 ? "" : build`get __pk() {

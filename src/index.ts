@@ -114,7 +114,8 @@ export interface PgtsMeta {
   schema: string
   pk_fields: string[]
   roles?: Roles
-  rels: {[name: string]: string}
+  rels: {[name: string]: {name: string, model: () => ModelMaker<any>}}
+  columns: string[]
 }
 
 export class Roles {
@@ -143,6 +144,15 @@ export function rol(name: string, perms: string): Roles {
 }
 
 
+export type SelectBuilder<T extends Model, MT extends ModelMaker<T>> = {
+  [K in keyof MT["meta"]["rels"]]: SelectBuilder<InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>, ReturnType<MT["meta"]["rels"][K]["model"]>>
+} & {
+  fields(...columns: (MT["meta"]["columns"][number])[]): SelectBuilder<T, MT>
+  __collect(): string
+}
+
+
+
 export abstract class Model {
 
   [s.sym_on_deserialized]() {
@@ -163,7 +173,7 @@ export abstract class Model {
     this.__old_pk = undefined
   }
 
-  static async get<T extends Model>(this: ModelMaker<T>, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<T[]> {
+  static async get<T extends Model, MT extends ModelMaker<T>>(this: MT, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<InstanceType<MT>[]> {
     // const ret = this as any as (new () => T)
     const meta = this.meta
     const res = await GET(meta.schema, meta.url + supl, { ...opts, })
@@ -172,15 +182,62 @@ export abstract class Model {
     return res_t as any
   }
 
-  static async getWith<T extends Model, MT extends ModelMaker<T>>(this: MT, rels: (keyof MT["meta"]["rels"])[], supl?: string) {
+  static getSelectorObject(): SelectBuilder<any, any> {
     const meta = this.meta
-    const res = await GET(meta.schema, `${meta.url}?select=*` + rels.map(r => "," + meta.rels[r as any] + "(*)").join(""))
+    const more: (() => string)[] = []
+    let fields: string[] = ["*"]
+    const res = {
+      fields(...columns: string[]): any {
+        fields = columns
+        return res
+      },
+      __collect() {
+        return fields.join(",") + more.map(f => f()).join("")
+      }
+    }
+
+    for (const [key, value] of Object.entries(meta.rels)) {
+      let _resolved_selector: SelectBuilder<any, any> | null = null
+      Object.defineProperty(res, key, {
+        get() {
+          if (!_resolved_selector) {
+            const mod = value.model()
+            _resolved_selector = mod.getSelectorObject()
+            more.push(() => {
+              return `,${value.name}(${_resolved_selector!.__collect()})`
+            })
+          }
+          return _resolved_selector
+        },
+        set(columns: string[]) {
+          // return this.getWith(key, columns)
+        }
+      })
+    }
+    return res as any
+  }
+
+  static async select<T extends Model, MT extends ModelMaker<T>>(this: MT, select: (s: SelectBuilder<T, MT>) => any, supl?: string): Promise<InstanceType<MT>[]> {
+    const meta = this.meta
+    const r = this.getSelectorObject()
+    select(r as any)
+    const q = r.__collect()
+    // console.log(q)
+    const res = await GET(meta.schema, `${meta.url}?select=${q}` + (supl ? "&" + supl : ""))
     const res_t = s.deserialize(res, this)
     // if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
     return res_t as any
   }
 
-  static async remove<T extends Model>(this: ModelMaker<T>, supl: string) {
+  static async getWith<T extends Model, MT extends ModelMaker<T>>(this: MT, rels: (keyof MT["meta"]["rels"])[], supl?: string): Promise<InstanceType<MT>[]> {
+    const meta = this.meta
+    const res = await GET(meta.schema, `${meta.url}?select=*` + rels.map(r => "," + meta.rels[r as any] + "(*)").join("") + (supl ? "&" + supl : ""))
+    const res_t = s.deserialize(res, this)
+    // if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
+    return res_t as any
+  }
+
+  static async remove<T extends Model, MT extends ModelMaker<T>>(this: MT, supl: string) {
     const meta = this.meta
     if (!supl)
       throw new Error("suppl cannot be empty")
@@ -189,7 +246,7 @@ export abstract class Model {
     return res
   }
 
-  static async saveMany<T extends Model>(this: ModelMaker<T>, models: T[]) {
+  static async saveMany<T extends Model, MT extends ModelMaker<T>>(this: MT, models: T[]) {
     if (!models.length) return []
 
     const meta = this.meta
@@ -285,18 +342,12 @@ export abstract class Model {
 
   static async createInDb<T extends Model>(this: ModelMaker<T>, defs: any): Promise<T> {
     const val = s.deserialize(defs, this)
+    delete val.__old_pk
+    console.log(val)
     return await val.save()
   }
 
   static create<T extends Model>(this: ModelMaker<T>, defs: any) {
     return s.deserialize(defs, this)
-  }
-}
-
-const rels = new WeakMap<typeof Model>()
-
-export function rel(str: string) {
-  return function (proto: (typeof Model)["prototype"], prop: string) {
-
   }
 }

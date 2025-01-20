@@ -14,6 +14,6 @@
     "jsx": "react",
     "reactNamespace": "E",
     "resolveJsonModule": true,
-    "lib": ["ESNext", "DOM.AsyncIterable", "dom"]
+    "lib": ["ESNext", "dom",]
   }
 }
