@@ -349,7 +349,8 @@ class SchemaDetails extends SchemaBase {
         const fromIsUnique = !!r.m_indices_by_columns.get(def.strFrom)?.isUnique
 
         const distantName = toIsUnique && def.from.length === 1 ? def.strFrom.replace(/(_id|s)$/, "") : dst.name
-        const hint = toIsUnique && def.from.length === 1 ? def.strFrom : `${dst.name}!${def.strFrom}`
+        const hint = toIsUnique && def.from.length === 1 ? def.strFrom : `${dst.name}!${def.name}`
+        // console.error(hint)
 
         r.references.push({
           pgtsName: `$${distantName}:${hint}`,
@@ -463,10 +464,12 @@ const cmd = command({
             schema: "${v.schemaName}",
             pk_fields: [${v.m_primaries.map(p => `"${p.name}"`).join(", ")}]${v.m_primaries.length === 0 ? " as string[]" : ""},
             rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", model: () => ${CamelCase(r.toTableObject.name)}}`).join(", ")}},
-            columns: [${[...v.m_columns.values()].map(c => `"${c.name}"`).join(", ")}] as (${[...v.m_columns.values()].map(c => `"${c.name}"`).join(" | ")})[]
+            columns: [${[...v.m_columns.values()].map(c => `"${c.name}"`).join(", ")}] as (${[...v.m_columns.values()].map(c => `"${c.name}"`).join(" | ")})[],
+            computed_columns: [${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(", ")}] as (${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(" | ") || "string"})[],
           }
 
           ${v.m_primaries.length === 0 ? "" : build`get __pk() {
+            if (${v.m_primaries.map(p => `this.${p.name} == null`).join(" || ")}) { return undefined }
             return {${v.m_pk_assign}}
           }`}
 

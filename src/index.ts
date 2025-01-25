@@ -116,6 +116,7 @@ export interface PgtsMeta {
   roles?: Roles
   rels: {[name: string]: {name: string, model: () => ModelMaker<any>}}
   columns: string[]
+  computed_columns: string[]
 }
 
 export class Roles {
@@ -144,10 +145,44 @@ export function rol(name: string, perms: string): Roles {
 }
 
 
+export type ValidColumnBase<T extends Model, MT extends ModelMaker<T>> = MT["meta"]["columns"][number] | MT["meta"]["computed_columns"][number]
+
+export type ValidColumn<T extends Model, MT extends ModelMaker<T>> = ValidColumnBase<T, MT> | `${ValidColumnBase<T, MT>}${"->" | "->>"}${string}` | "*" | "**"
+
+
+export class SelectBuilderBase<T extends Model, MT extends ModelMaker<T>> {
+  columns(...columns: ValidColumn<T, MT>[]): SelectBuilder<T, MT> {
+    return null!
+  }
+
+  get inner(): SelectBuilder<T, MT> { return this as any }
+  __collect(): string { return "" }
+}
+
+
+export type TupleToIntersection<T extends any[]> = {
+  [K in keyof T]: (x: T[K]) => void
+} extends {
+  [K: number]: (x: infer I) => void
+}
+  ? I
+  : never
+
+export type SelectBuilderFn<T extends Model, MT extends ModelMaker<T>> = (...fields: ValidColumn<T, MT>[]) => SelectBuilder<T, MT>
+
+export type SelectBuilder2<T extends Model, MT extends ModelMaker<T>> =
+  SelectBuilderFn<T, MT> & {
+    [K in keyof MT["meta"]["rels"]]: SelectBuilder<InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>, ReturnType<MT["meta"]["rels"][K]["model"]>>
+  } & {
+    [K in ValidColumn<T, MT>]: SelectBuilder<T, MT>
+  }
+
+
 export type SelectBuilder<T extends Model, MT extends ModelMaker<T>> = {
   [K in keyof MT["meta"]["rels"]]: SelectBuilder<InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>, ReturnType<MT["meta"]["rels"][K]["model"]>>
 } & {
-  fields(...columns: (MT["meta"]["columns"][number] | "*")[]): SelectBuilder<T, MT>
+  fields(...columns: ValidColumn<T, MT>[]): SelectBuilder<T, MT>
+  get inner(): SelectBuilder<T, MT>
   __collect(): string
 }
 
@@ -182,29 +217,49 @@ export abstract class Model {
     return res_t as any
   }
 
-  static getSelectorObject(): SelectBuilder<any, any> {
+  static getSelectorObject(alias: string = ""): SelectBuilder<any, any> {
     const meta = this.meta
     const more: (() => string)[] = []
+    const deserializers: ((res: any) => any)[] = []
     let fields: string[] = ["*"]
     const res = {
       fields(...columns: string[]): any {
         fields = columns
         return res
       },
+      get inner() {
+        (res as any)._inner = "!inner"
+        return res
+      },
       __collect() {
         return [...fields, ...more.map(f => f())].join(",")
+      },
+      __deserializers() {
+        return deserializers
       }
     }
 
+    for (const col of [...meta.columns, ...meta.computed_columns]) {
+      Object.defineProperty(res, col, {
+        get() {
+          return res
+        }
+      })
+      // fields.push(col)
+    }
+
     for (const [key, value] of Object.entries(meta.rels)) {
-      let _resolved_selector: SelectBuilder<any, any> | null = null
+      let _resolved_selector: SelectBuilder<any, any> & { _inner?: string } | null = null
       Object.defineProperty(res, key, {
         get() {
           if (!_resolved_selector) {
             const mod = value.model()
-            _resolved_selector = mod.getSelectorObject()
+            _resolved_selector = mod.getSelectorObject(value.name)
             more.push(() => {
-              return `${value.name}(${_resolved_selector!.__collect()})`
+              return `${value.name}${(_resolved_selector!._inner ?? "")}(${_resolved_selector!.__collect()})`
+            })
+            deserializers.push((res: any) => {
+              return s.deserialize(res[key], mod)
             })
           }
           return _resolved_selector
@@ -224,14 +279,6 @@ export abstract class Model {
     const q = r.__collect()
     // console.log(q)
     const res = await GET(meta.schema, `${meta.url}?select=${q}` + (supl ? "&" + supl : ""))
-    const res_t = s.deserialize(res, this)
-    // if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
-    return res_t as any
-  }
-
-  static async getWith<T extends Model, MT extends ModelMaker<T>>(this: MT, rels: (keyof MT["meta"]["rels"])[], supl?: string): Promise<InstanceType<MT>[]> {
-    const meta = this.meta
-    const res = await GET(meta.schema, `${meta.url}?select=*` + rels.map(r => "," + meta.rels[r as any] + "(*)").join("") + (supl ? "&" + supl : ""))
     const res_t = s.deserialize(res, this)
     // if (opts.exact_count && (res as any)[sym_count]) (res_t as any)[sym_count] = (res as any)[sym_count]
     return res_t as any
