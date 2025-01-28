@@ -457,13 +457,11 @@ const cmd = command({
         */
         export class ${CamelCase(v.name)} extends p.Model {
 
-          ${v.references.map(r => `@(s.embed(() => ${CamelCase(r.toTableSimpleName)})${!r.toIsUnique ? ".array" : ""}.ro) $${r.distantName}!: ${CamelCase(r.toTableSimpleName)}${!r.toIsUnique ? "[]" : ""}`)}
-
           static meta = {
             url: "/pg/${v.name}",
             schema: "${v.schemaName}",
             pk_fields: [${v.m_primaries.map(p => `"${p.name}"`).join(", ")}]${v.m_primaries.length === 0 ? " as string[]" : ""},
-            rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", model: () => ${CamelCase(r.toTableObject.name)}}`).join(", ")}},
+            rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", is_array: ${r.toIsUnique ? "false" : "true"} as const, model: () => ${CamelCase(r.toTableObject.name)}}`).join(", ")}},
             columns: [${[...v.m_columns.values()].map(c => `"${c.name}"`).join(", ")}] as (${[...v.m_columns.values()].map(c => `"${c.name}"`).join(" | ")})[],
             computed_columns: [${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(", ")}] as (${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(" | ") || "string"})[],
           }
