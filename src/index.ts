@@ -275,11 +275,13 @@ export class SelectBuilderBase<MT extends ModelMaker<any>, Result = {obj: Instan
 }
 
 
+export type Selected<S> = S extends SelectBuilderBase<infer MT, infer Result> ? Result : never
+
 export type SelectBuilder<MT extends ModelMaker<any>, Result> = SelectBuilderBase<MT, Result> & {
   [K in keyof MT["meta"]["rels"]]:
-    <MT2>(
-      fn: (m: SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, true extends MT["meta"]["rels"][K]["is_array"]  ? InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>[] : InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>>) => SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, MT2>) =>
-      SelectBuilder<MT, Result & {[k in K]: MT2}>
+    | (<MT2 = {obj: InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>}>(
+      fn?: (m: SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, {obj: InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>}>) => SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, MT2>) =>
+      SelectBuilder<MT, Result & {[k in K]: true extends MT["meta"]["rels"][K]["is_array"] ? MT2[] : MT2}>)
 
 }
 
@@ -314,8 +316,9 @@ export abstract class Model {
     this.__old_pk = undefined
   }
 
-  static async select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {obj: MT}>) => Result): Promise<{}> {
-    const builder = new SelectBuilderBase<MT, {obj: MT}>(this, "obj", [], true)
+  static async select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {obj: InstanceType<MT>}>) => Result): Promise<Selected<Result>[]> {
+    const builder = new SelectBuilderBase<MT, {obj: InstanceType<MT>}>(this, "obj", [], true)
+    select(builder as any)
     return null!
   }
 
