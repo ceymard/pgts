@@ -140,25 +140,15 @@ export class Roles {
   }
 }
 
-/**
-
-  s.Select("field1", "field2") -> pas de pk, donc pas d'objet direct ?
-  s.Select("**") -- avec les champs computés
-  s.Select("*", "pouet", "pouet2")
-  s.Select().as("instance")
-  s
-    .$managers.Select("field1")
-    .$managers.Select("**")
-    .$managers(s =>
-      s.Select("**")
-      .as("managers")
-      .$username(s => s.as("rel_user"))
-    )
-  .query()
-*/
 
 export function rol(name: string, perms: string): Roles {
   return new Roles().rol(name, perms)
+}
+
+
+export type Query = {
+  columns: string[]
+  rest: string[]
 }
 
 
@@ -169,45 +159,27 @@ export type OrderColumnRef<MT extends ModelMaker<any>> = NamedColumnRef<MT> | `$
 export type ValidColumnRef<MT extends ModelMaker<any>> = NamedColumnRef<MT> | "*" | "**"
 
 
-export class QueryBuilder {
-  constructor() { }
-  select: string[] = []
-  where: string[] = []
-  order: string[] = []
-  limit: number | null = null
-  offset: number | null = null
-}
 
 export class Where<MT extends ModelMaker<any>> {
-  constructor(public builder: SelectBuilderBase<MT, any>) { }
+  constructor(public builder: SelectBuilder<MT, any>) { }
 
   protected _op = "and"
   protected _subwheres: Where<MT>[] = []
 
-  get not() {
+  bin(op: PostgrestBinaryOp, field: NamedColumnRef<MT>, value: any): this
+  bin(op: `${PostgrestBinaryOp}(${"any" | "all"})`, field: NamedColumnRef<MT>, ...values: any[]): this
+  bin(
+    op: PostgrestBinaryOp | `${PostgrestBinaryOp}(${"any" | "all"})`,
+    field: NamedColumnRef<MT>,
+    ...value: any[]
+  ): this {
     return this
   }
 }
 
-export interface Where<MT extends ModelMaker<any>> {
-  eq(field: NamedColumnRef<MT>, value: any): this
-  neq(field: NamedColumnRef<MT>, value: any): this
-  gt(field: NamedColumnRef<MT>, value: any): this
-  gte(field: NamedColumnRef<MT>, value: any): this
-  lt(field: NamedColumnRef<MT>, value: any): this
-  lte(field: NamedColumnRef<MT>, value: any): this
-  like(field: NamedColumnRef<MT>, value: any): this
-  ilike(field: NamedColumnRef<MT>, value: any): this
-  match(field: NamedColumnRef<MT>, value: any): this
-  imatch(field: NamedColumnRef<MT>, value: any): this
-  in(field: NamedColumnRef<MT>, value: any): this
-  is(field: NamedColumnRef<MT>, value: any): this
-  isdistinct(field: NamedColumnRef<MT>, value: any): this
-  fts(field: NamedColumnRef<MT>, value: any, lang?: string): this
-  plfts(field: NamedColumnRef<MT>, value: any, lang?: string): this
-  phfts(field: NamedColumnRef<MT>, value: any, lang?: string): this
-  wfts(field: NamedColumnRef<MT>, value: any, lang?: string): this
-}
+export type PostgrestBinaryOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "like" | "ilike" | "match" | "imatch" | "in" | "is" | "isdistinct" | "is"
+export type PostgrestUnaryOp = "not"
+export type PostgrestFtsOp = "fts" | "plfts" | "phfts" | "wfts"
 
 export const binary_ops = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "match", "imatch", "in", "is", "isdistinct", "is"]
 export const unary_ops = ["not"]
@@ -217,25 +189,26 @@ export const fts_ops = ["fts", "plfts", "phfts", "wfts"]
 //curl -g "http://localhost:3000/people?last_name=like(any).{O*,P*}"
 
 
-export class SelectBuilderBase<MT extends ModelMaker<any>, Result = {obj: InstanceType<MT>}> {
+export class SelectBuilder<MT extends ModelMaker<any>, Result = {item: InstanceType<MT>}> {
   constructor(
     public readonly builder: MT,
     /** base_prop represents the property that we will try to deserialize into */
-    public base_prop: string = "obj",
+    public key: string,
+    public fullname: string,
     public path: string[] = [],
-    public is_base = false,
   ) { }
 
   fields = ["*"]
-  subbuilders: SelectBuilderBase<any>[] = []
+  subbuilders: SelectBuilder<any>[] = []
+  wheres: Where<MT>[] = []
 
   _inner = false
 
   /**
    * Select all columns, with computed columns as well
    */
-  selectAll() {
-    this.fields = [...this.builder.meta.columns, ...this.builder.meta.computed_columns]
+  get all() {
+    this.fields = ["*", ...this.builder.meta.computed_columns]
     return this
   }
 
@@ -249,12 +222,9 @@ export class SelectBuilderBase<MT extends ModelMaker<any>, Result = {obj: Instan
 
   where(where: (w: Where<MT>) => any) {
     const w = new Where<MT>(this)
+    this.wheres.push(w)
     where(w)
     return this
-  }
-
-  async query(): Promise<Result[]> {
-    return null!
   }
 
   get inner(): this {
@@ -262,28 +232,64 @@ export class SelectBuilderBase<MT extends ModelMaker<any>, Result = {obj: Instan
     return this as any
   }
 
-  collect(): string {
+  collectFields(): string {
+    return [
+      ...this.fields,
+      ...this.subbuilders.map(sb => `${sb.fullname}(${sb.collectFields()})`)
+    ].join(",")
+  }
+
+  collectOthers(): string[] {
+    return [
+      // this.where,
+      // ...this.subbuilders.map(sb => sb.collectOthers()),
+    ]
+  }
+
+  rel<K extends RelKey<MT>, MT2 = {item: RelInstance<MT, K>}>(
+    key: K,
+    select?: (s: SelectBuilder<Rel<MT, K>, {item: RelInstance<MT, K>}>) => SelectBuilder<Rel<MT, K>, MT2>
+  ): SelectBuilder<MT, Result & {[k in K]: RelIsArray<MT, K, MT2>}> {
+    const meta = (this.builder.meta.rels as any)[key] as PgtsMeta["rels"][string]
+
+    const sub = new SelectBuilder<Rel<MT, K>, {item: RelInstance<MT, K>}>(
+      meta.model() as any,
+      key as string,
+      meta.name,
+      [...this.path, key as string]
+    )
+    this.subbuilders.push(sub)
+    select?.(sub)
+
+    return this as any
+  }
+
+  deserialize(_item: any): Result {
+    const item = s.deserialize(_item, this.builder)
+    const res: any = {item}
     for (const sub of this.subbuilders) {
-      sub.collect()
+      const sub_item = _item[sub.key]
+      res[sub.key] = Array.isArray(sub_item) ? sub_item.map(i => sub.deserialize(i)) : sub.deserialize(sub_item)
     }
-    return ""
-  }
-
-  deserialize(res: any): InstanceType<MT> {
-    return null!
+    return res
   }
 }
 
+export type RelIsArray<MT extends ModelMaker<any>, K extends RelKey<MT>, T> = true extends MT["meta"]["rels"][K]["is_array"] ? T[] : T
 
-export type Selected<S> = S extends SelectBuilderBase<infer MT, infer Result> ? Result : never
+export type RelKey<MT extends ModelMaker<any>> = keyof MT["meta"]["rels"]
+export type Rel<MT extends ModelMaker<any>, K extends keyof MT["meta"]["rels"]> = ReturnType<MT["meta"]["rels"][K]["model"]>
+export type RelInstance<MT extends ModelMaker<any>, K extends keyof MT["meta"]["rels"]> = InstanceType<Rel<MT, K>>
 
-export type SelectBuilder<MT extends ModelMaker<any>, Result> = SelectBuilderBase<MT, Result> & {
-  [K in keyof MT["meta"]["rels"]]:
-    | (<MT2 = {obj: InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>}>(
-      fn?: (m: SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, {obj: InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>}>) => SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, MT2>) =>
-      SelectBuilder<MT, Result & {[k in K]: true extends MT["meta"]["rels"][K]["is_array"] ? MT2[] : MT2}>)
+export type Selected<S> = S extends SelectBuilder<infer MT, infer Result> ? Result : never
 
-}
+// export type SelectBuilder<MT extends ModelMaker<any>, Result> = SelectBuilderBase<MT, Result> & {
+//   [K in keyof MT["meta"]["rels"]]:
+//     | (<MT2 = {item: InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>}>(
+//       fn?: (m: SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, {item: InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>}>) => SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, MT2>) =>
+//       SelectBuilder<MT, Result & {[k in K]: true extends MT["meta"]["rels"][K]["is_array"] ? MT2[] : MT2}>)
+
+// }
 
 
 // export type SelectBuilder<MT extends ModelMaker<any>> = {
@@ -316,10 +322,22 @@ export abstract class Model {
     this.__old_pk = undefined
   }
 
-  static async select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {obj: InstanceType<MT>}>) => Result): Promise<Selected<Result>[]> {
-    const builder = new SelectBuilderBase<MT, {obj: InstanceType<MT>}>(this, "obj", [], true)
+  static async select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {item: InstanceType<MT>}>) => Result): Promise<Selected<Result>[]> {
+    const builder = new SelectBuilder<MT, {item: InstanceType<MT>}>(this, "", "item", [])
     select(builder as any)
-    return null!
+
+    const query: Query = {
+      columns: [],
+      rest: []
+    }
+
+    const _select = builder.collectFields()
+    const res = await GET(this.meta.schema, this.meta.url + "?" + `select=${_select}`) as any[]
+    const dres = res.map(r => builder.deserialize(r))
+    // builder.collect(query)
+    console.log(dres)
+
+    return res
   }
 
   static async get<T extends Model, MT extends ModelMaker<T>>(this: MT, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<InstanceType<MT>[]> {
