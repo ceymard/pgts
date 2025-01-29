@@ -176,7 +176,7 @@ export type ValidColumnRef<MT extends ModelMaker<any>> = NamedColumnRef<MT> | "*
 export type PGBinary<MT extends ModelMaker<any>> = [field: NamedColumnRef<MT>, op: PostgrestBinaryOp, value: any]
 export type PGBinaryArray<MT extends ModelMaker<any>> = [field: NamedColumnRef<MT>, op: `${PostgrestBinaryOp}(${"any" | "all"})`, ...value: any[]]
 export type PGOp<MT extends ModelMaker<any>> = PGBinary<MT> | PGBinaryArray<MT>
-export type PGWhere<MT extends ModelMaker<any>> = PGOp<MT> | ["not", PGWhere<MT>] | ["and", PGWhere<MT>[]] | ["or", PGWhere<MT>[]]
+export type PGWhere<MT extends ModelMaker<any>> = PGOp<MT> | ["not", PGWhere<MT>] | ["and", ...PGWhere<MT>[]] | ["or", ...PGWhere<MT>[]]
 
 
 export type PostgrestUnaryOp = "not"
@@ -187,7 +187,7 @@ export type PostgrestBinaryOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "li
 
 export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceType<MT>}> {
   constructor(
-    public readonly builder: MT,
+    public readonly model: MT,
     /** base_prop represents the property that we will try to deserialize into */
     public key: string,
     public fullname: string,
@@ -197,6 +197,7 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
   fields = ["*"]
   subbuilders: SelectBuilder<any>[] = []
   wheres: PGWhere<MT>[] = []
+  _order: OrderColumnRef<MT>[] = []
 
   _inner = false
 
@@ -204,13 +205,33 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
    * Select all columns, with computed columns as well
    */
   get all() {
-    this.fields = ["*", ...this.builder.meta.computed_columns]
+    this.fields = ["*", ...this.model.meta.computed_columns]
+    return this
+  }
+
+  empty() {
+    this.fields = []
+    return this
+  }
+
+  orderBy(...columns: OrderColumnRef<MT>[]) {
+    this._order.push(...columns)
+    return this
+  }
+
+  omit(...columns: ValidColumnRef<MT>[]) {
+    this.fields = this.model.meta.columns.filter(c => !columns.includes(c))
+    return this
+  }
+
+  omitFromAll(...columns: ValidColumnRef<MT>[]) {
+    this.fields = [...this.model.meta.columns, ...this.model.meta.computed_columns].filter(c => !columns.includes(c))
     return this
   }
 
   columns(...columns: ValidColumnRef<MT>[]) {
     this.fields = columns.flatMap(c =>
-      c === "**" ? [...this.builder.meta.columns, ...this.builder.meta.computed_columns]
+      c === "**" ? [...this.model.meta.columns, ...this.model.meta.computed_columns]
       : c
     )
     return this
@@ -244,13 +265,17 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
         return `${prefix}and.(${where.slice(1).map(w => _where(w)).join(",")})`
       }
       if (where[0] === "or") {
-        return `${prefix}or=(${where.slice(1).map(w => _where(w)).join(",")})`
+        return `${prefix}or.(${where.slice(1).map(w => _where(w)).join(",")})`
       }
       const [field, op, value] = where
       return `${field}.${op}.${encodeURIComponent(value)}`
     }
+    let wheres = this.wheres
+    if (wheres.length === 1 && wheres[0][0] === "and") {
+      wheres = wheres[0].slice(1)
+    }
     return [
-      ...(!this.wheres.length ? [] : [`${prefix}and=(${this.wheres.map(_where).join(",")})`]),
+      ...(!this.wheres.length ? [] : [`${prefix}and=(${wheres.map(_where).join(",")})`]),
       // this.where,
       ...this.subbuilders.flatMap(sb => sb.collectOthers()),
     ]
@@ -260,7 +285,7 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     key: K,
     select?: (s: SelectBuilder<Rel<MT, K>, {row: RelInstance<MT, K>}>) => SelectBuilder<Rel<MT, K>, MT2>
   ): SelectBuilder<MT, Result & {[k in K]: RelIsArray<MT, K, MT2>}> {
-    const meta = (this.builder.meta.rels as any)[key] as PgtsMeta["rels"][string]
+    const meta = (this.model.meta.rels as any)[key] as PgtsMeta["rels"][string]
 
     const sub = new SelectBuilder<Rel<MT, K>, {row: RelInstance<MT, K>}>(
       meta.model() as any,
@@ -275,7 +300,7 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
   }
 
   deserialize(_row: any): Result {
-    const row = _row != null ? s.deserialize(_row, this.builder) : null
+    const row = _row != null ? s.deserialize(_row, this.model) : null
     const res: any = {row}
     for (const sub of this.subbuilders) {
       const sub_item = _row[sub.key]
@@ -332,9 +357,13 @@ export abstract class Model {
     this.__old_pk = undefined
   }
 
-  static async select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {row: InstanceType<MT>}>) => Result): Promise<Selected<Result>[]> {
+  static builder<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {row: InstanceType<MT>}>) => SelectBuilder<MT, Result>) {
     const builder = new SelectBuilder<MT, {row: InstanceType<MT>}>(this, "", "item", [])
-    select(builder as any)
+    return select(builder)
+  }
+
+  static async select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {row: InstanceType<MT>}>) => Result): Promise<Selected<Result>[]> {
+    const builder = this.builder(select)
 
     const q = ["select=" + builder.collectFields(), ...builder.collectOthers()]
     const res = await GET(this.meta.schema, this.meta.url + "?" + q.join("&")) as any[]

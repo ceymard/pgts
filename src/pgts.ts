@@ -191,12 +191,10 @@ class SchemaDetails extends SchemaBase {
     return "undefined!"
   }
 
-  ////////////////////////////////////////////
-  // Functions that we
-  functions = new Map(Object.values(this.schemas).flatMap(sc => {
+  functions_array = Object.values(this.schemas).flatMap(sc => {
     return sc.functions.map(fn => {
       const qualifiedName = `${fn.schemaName}.${fn.name}`
-      return [qualifiedName, ({
+      return ({
         ...fn,
         m_params: fn.parameters.map(p => ({
           ...p,
@@ -206,8 +204,14 @@ class SchemaDetails extends SchemaBase {
         m_return_type: this.getReturnType(fn),
         m_return_deser: this.getReturnDeser(fn),
         qualifiedName,
-      })]
+      })
     })
+  })
+
+  ////////////////////////////////////////////
+  // Functions that we
+  functions = new Map(this.functions_array.map((fn) => {
+    return [fn.qualifiedName, fn]
   }))
 
   relations = new Map(Object.values(this.schemas).flatMap(sc => {
@@ -291,12 +295,26 @@ class SchemaDetails extends SchemaBase {
   }))
 
   functions_for_tables = Map.groupBy(
-    this.functions.values().filter(f => f.parameters.length === 1
+    this.functions_array.filter(f => f.parameters.length === 1
       && this.relations.has(f.parameters[0].type)
       && !f.returnsSet
     ),
     f => f.parameters[0].type
     )
+
+  #init = (() => {
+    for (let [name, sc] of Object.entries(this.schemas)) {
+      for (let f of sc.functions) {
+        if (f.parameters.length === 1 && f.schemaName === "api") {
+          console.error(f.schemaName,".", f.name)
+          // this.functions_for_tables.set(f.parameters[0].type, f)
+        }
+      }
+    }
+    // console.error(this.functions_for_tables.size)
+    console.error(...this.functions_for_tables.values().map(fn => fn.map(f => f.qualifiedName)))
+    console.error(...this.functions_array.values().filter(f => f.schemaName === "api").map(fn => fn.qualifiedName))
+  })()
 
   all_columns = new Map(this.relations.values().flatMap(v => {
     if (v.kind === "compositeType") {
