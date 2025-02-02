@@ -308,6 +308,14 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     }
     return res
   }
+
+  async fetch(): Promise<Result[]> {
+    const meta = this.model.meta
+    const q = ["select=" + this.collectFields(), ...this.collectOthers()]
+    const res = await GET(meta.schema, meta.url + "?" + q.join("&")) as any[]
+    const dres = res.map(r => this.deserialize(r))
+    return dres
+  }
 }
 
 export type RelIsArray<MT extends ModelMaker<any>, K extends RelKey<MT>, T> = true extends MT["meta"]["rels"][K]["is_array"] ? T[] : T
@@ -317,24 +325,6 @@ export type Rel<MT extends ModelMaker<any>, K extends keyof MT["meta"]["rels"]> 
 export type RelInstance<MT extends ModelMaker<any>, K extends keyof MT["meta"]["rels"]> = InstanceType<Rel<MT, K>>
 
 export type Selected<S> = S extends SelectBuilder<infer MT, infer Result> ? Result : never
-
-// export type SelectBuilder<MT extends ModelMaker<any>, Result> = SelectBuilderBase<MT, Result> & {
-//   [K in keyof MT["meta"]["rels"]]:
-//     | (<MT2 = {row: InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>}>(
-//       fn?: (m: SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, {row: InstanceType<ReturnType<MT["meta"]["rels"][K]["model"]>>}>) => SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>, MT2>) =>
-//       SelectBuilder<MT, Result & {[k in K]: true extends MT["meta"]["rels"][K]["is_array"] ? MT2[] : MT2}>)
-
-// }
-
-
-// export type SelectBuilder<MT extends ModelMaker<any>> = {
-//   [K in keyof MT["meta"]["rels"]]: SelectBuilder<ReturnType<MT["meta"]["rels"][K]["model"]>>
-// } & {
-//   fields(...columns: ValidColumnRef<MT>[]): SelectBuilder<MT>
-//   get inner(): SelectBuilder<MT>
-//   __collect(): string
-// }
-
 
 
 export abstract class Model {
@@ -357,19 +347,9 @@ export abstract class Model {
     this.__old_pk = undefined
   }
 
-  static builder<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {row: InstanceType<MT>}>) => SelectBuilder<MT, Result>) {
+  static select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {row: InstanceType<MT>}>) => SelectBuilder<MT, Result>) {
     const builder = new SelectBuilder<MT, {row: InstanceType<MT>}>(this, "", "item", [])
     return select(builder)
-  }
-
-  static async select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {row: InstanceType<MT>}>) => Result): Promise<Selected<Result>[]> {
-    const builder = this.builder(select)
-
-    const q = ["select=" + builder.collectFields(), ...builder.collectOthers()]
-    const res = await GET(this.meta.schema, this.meta.url + "?" + q.join("&")) as any[]
-    const dres = res.map(r => builder.deserialize(r))
-
-    return dres as any
   }
 
   static async get<T extends Model, MT extends ModelMaker<T>>(this: MT, supl: string = "", opts: { exact_count?: boolean } = {}): Promise<InstanceType<MT>[]> {
