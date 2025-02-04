@@ -209,6 +209,16 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     return this
   }
 
+  clone(): this {
+    const res = new SelectBuilder(this.model, this.key, this.fullname, this.path) as this
+    res.fields = [...this.fields]
+    res.subbuilders = [...this.subbuilders]
+    res.wheres = [...this.wheres]
+    res._order = [...this._order]
+    res._inner = this._inner
+    return res
+  }
+
   empty() {
     this.fields = []
     return this
@@ -237,9 +247,10 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     return this
   }
 
-  where(where: PGWhere<MT>): this {
-    this.wheres.push(where)
-    return this
+  where(...where: PGWhere<MT>[]): this {
+    const res = this.clone()
+    res.wheres.push(...where)
+    return res
   }
 
   get inner(): this {
