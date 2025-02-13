@@ -349,7 +349,6 @@ class SchemaDetails extends SchemaBase {
   #_init_ = (() => {
 
     for (let [name, r] of this.relations) {
-      // log(r.m_indices)
 
       if (!this.allowed_schemas.has(r.schemaName)) { continue }
 
@@ -479,7 +478,7 @@ const cmd = command({
             url: "/pg/${v.name}",
             schema: "${v.schemaName}",
             pk_fields: [${v.m_primaries.map(p => `"${p.name}"`).join(", ")}]${v.m_primaries.length === 0 ? " as string[]" : ""},
-            rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", is_array: ${r.toIsUnique ? "false" : "true"} as const, model: () => ${CamelCase(r.toTableObject.name)}}`).join(", ")}},
+            rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", is_array: ${r.toIsUnique ? "false" : "true"} as const, model: () => ${CamelCase(r.toTableObject.name)}, to_columns: [${r.toColumns.map(c => `"${c}"`).join(", ")}], from_columns: [${r.fromColumns.map(c => `"${c}"`).join(", ")}] }`).join(", ")}},
             columns: [${[...v.m_columns.values()].map(c => `"${c.name}"`).join(", ")}] as (${[...v.m_columns.values()].map(c => `"${c.name}"`).join(" | ")})[],
             computed_columns: [${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(", ")}] as (${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(" | ") || "string"})[],
           }
@@ -488,6 +487,8 @@ const cmd = command({
             if (${v.m_primaries.map(p => `this.${p.name} == null`).join(" || ")}) { return undefined }
             return {${v.m_pk_assign}}
           }`}
+
+          ${v.m_indices.values().filter(i => i.isUnique).map(i => i.columns.length === 1 ? `get __strkey_${i.name}() { return this.${i.columns[0].name} }` : `get __strkey_${i.name}() { return \`\$\{${i.columns.map(c => `this.${c.name}`).join("}␟\$\{")}\}\` }`)}
 
           ${v.m_columns.values().map(c => c.withDecorators)}
 

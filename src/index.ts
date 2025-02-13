@@ -6,6 +6,9 @@ export * from "./types"
 export type Json = any
 export type Jsonb = Json
 
+export interface PgtsResult<MT extends ModelMaker<any>> {
+  row: InstanceType<MT>
+}
 
 export type ModelMaker<T extends Model> = {new(...a: any): T} & Pick<typeof Model, keyof typeof Model>
 
@@ -114,7 +117,13 @@ export interface PgtsMeta {
   schema: string
   pk_fields: string[]
   roles?: Roles
-  rels: {[name: string]: {name: string, model: () => ModelMaker<any>, is_array: true | false}}
+  rels: {[name: string]: {
+    name: string,
+    model: () => ModelMaker<any>,
+    is_array: true | false,
+    to_columns: string[],
+    from_columns: string[],
+  }}
   columns: string[]
   computed_columns: string[]
 }
@@ -205,14 +214,15 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
    * Select all columns, with computed columns as well
    */
   get all() {
-    this.fields = ["*", ...this.model.meta.computed_columns]
-    return this
+    const res = this.clone()
+    res.fields = ["*", ...this.model.meta.computed_columns]
+    return res
   }
 
   clone(): this {
     const res = new SelectBuilder(this.model, this.key, this.fullname, this.path) as this
+    res.subbuilders = this.subbuilders.map(sb => sb.clone())
     res.fields = [...this.fields]
-    res.subbuilders = [...this.subbuilders]
     res.wheres = [...this.wheres]
     res._order = [...this._order]
     res._inner = this._inner
@@ -220,31 +230,36 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
   }
 
   empty() {
-    this.fields = []
-    return this
+    const res = this.clone()
+    res.fields = []
+    return res
   }
 
   orderBy(...columns: OrderColumnRef<MT>[]) {
-    this._order.push(...columns)
-    return this
+    const res = this.clone()
+    res._order.push(...columns)
+    return res
   }
 
   omit(...columns: ValidColumnRef<MT>[]) {
-    this.fields = this.model.meta.columns.filter(c => !columns.includes(c))
-    return this
+    const res = this.clone()
+    res.fields = res.model.meta.columns.filter(c => !columns.includes(c))
+    return res
   }
 
   omitFromAll(...columns: ValidColumnRef<MT>[]) {
-    this.fields = [...this.model.meta.columns, ...this.model.meta.computed_columns].filter(c => !columns.includes(c))
-    return this
+    const res = this.clone()
+    res.fields = [...this.model.meta.columns, ...this.model.meta.computed_columns].filter(c => !columns.includes(c))
+    return res
   }
 
   columns(...columns: ValidColumnRef<MT>[]) {
-    this.fields = columns.flatMap(c =>
+    const res = this.clone()
+    res.fields = columns.flatMap(c =>
       c === "**" ? [...this.model.meta.columns, ...this.model.meta.computed_columns]
       : c
     )
-    return this
+    return res
   }
 
   where(...where: PGWhere<MT>[]): this {
@@ -297,17 +312,18 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     select?: (s: SelectBuilder<Rel<MT, K>, {row: RelInstance<MT, K>}>) => SelectBuilder<Rel<MT, K>, MT2>
   ): SelectBuilder<MT, Result & {[k in K]: RelIsArray<MT, K, MT2>}> {
     const meta = (this.model.meta.rels as any)[key] as PgtsMeta["rels"][string]
+    const res = this.clone()
 
-    const sub = new SelectBuilder<Rel<MT, K>, {row: RelInstance<MT, K>}>(
+    let sub = new SelectBuilder<Rel<MT, K>, {row: RelInstance<MT, K>}>(
       meta.model() as any,
       key as string,
       meta.name,
       [...this.path, key as string]
     )
-    this.subbuilders.push(sub)
-    select?.(sub)
+    sub = select?.(sub) ?? sub as any
+    res.subbuilders.push(sub)
 
-    return this as any
+    return res as any
   }
 
   deserialize(_row: any): Result {
