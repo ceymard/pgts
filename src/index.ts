@@ -120,6 +120,7 @@ export interface PgtsMeta {
   rels: {[name: string]: {
     name: string,
     model: () => ModelMaker<any>,
+    is_null: boolean
     is_array: true | false,
     to_columns: string[],
     from_columns: string[],
@@ -229,10 +230,12 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     return res
   }
 
-  empty() {
-    const res = this.clone()
-    res.fields = []
-    return res
+  empty(): Result {
+    const res = {row: this.model.create({})}
+    for (const sub of this.subbuilders) {
+      ;(res as any)[sub.key] = sub.empty()
+    }
+    return res as Result
   }
 
   orderBy(...columns: OrderColumnRef<MT>[]) {
@@ -284,6 +287,7 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     const prefix = this.path.length ? this.path.join(".") + "." : ""
 
     const _where = (where: PGWhere<MT>): string => {
+
       if (where[0] === "not") {
         return `${prefix}not.(${_where(where[1] as PGWhere<MT>)})`
       }
