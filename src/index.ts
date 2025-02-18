@@ -186,12 +186,13 @@ export type ValidColumnRef<MT extends ModelMaker<any>> = NamedColumnRef<MT> | "*
 export type PGBinary<MT extends ModelMaker<any>> = [field: NamedColumnRef<MT>, op: PostgrestBinaryOp, value: any]
 export type PGBinaryArray<MT extends ModelMaker<any>> = [field: NamedColumnRef<MT>, op: `${PostgrestBinaryOp}(${"any" | "all"})`, ...value: any[]]
 export type PGOp<MT extends ModelMaker<any>> = PGBinary<MT> | PGBinaryArray<MT>
-export type PGWhere<MT extends ModelMaker<any>> = PGOp<MT> | ["not", PGWhere<MT>] | ["and", ...PGWhere<MT>[]] | ["or", ...PGWhere<MT>[]]
+
+export type PgtsWhere<MT extends ModelMaker<any>> = PGOp<MT> | ["not", PgtsWhere<MT>] | ["and", ...PgtsWhere<MT>[]] | ["or", ...PgtsWhere<MT>[]]
 
 
 export type PostgrestUnaryOp = "not"
 export type PostgrestFtsOp = `fts(${string})` | `plfts(${string})` | `phfts(${string})` | `wfts(${string})`
-export type PostgrestBinaryOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "like" | "ilike" | "match" | "imatch" | "in" | "is" | "isdistinct" | "is" | PostgrestFtsOp
+export type PostgrestBinaryOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "like" | "ilike" | "match" | "imatch" | "in" | "is" | "isdistinct" | "is" | "cs" | "cd" | "ov" | "sl" | "sr" | "nxr" | "nxl" | "adj" | PostgrestFtsOp
 
 
 
@@ -206,7 +207,7 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
 
   fields = ["*"]
   subbuilders: SelectBuilder<any>[] = []
-  wheres: PGWhere<MT>[] = []
+  wheres: PgtsWhere<MT>[] = []
   _order: OrderColumnRef<MT>[] = []
 
   _inner = false
@@ -265,7 +266,7 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     return res
   }
 
-  where(...where: PGWhere<MT>[]): this {
+  where(...where: PgtsWhere<MT>[]): this {
     const res = this.clone()
     res.wheres.push(...where)
     return res
@@ -286,10 +287,10 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
   collectOthers(): string[] {
     const prefix = this.path.length ? this.path.join(".") + "." : ""
 
-    const _where = (where: PGWhere<MT>): string => {
+    const _where = (where: PgtsWhere<MT>): string => {
 
       if (where[0] === "not") {
-        return `${prefix}not.(${_where(where[1] as PGWhere<MT>)})`
+        return `${prefix}not.(${_where(where[1] as PgtsWhere<MT>)})`
       }
       if (where[0] === "and") {
         return `${prefix}and.(${where.slice(1).map(w => _where(w)).join(",")})`

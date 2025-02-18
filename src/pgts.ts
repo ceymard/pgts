@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { inspect } from "util"
 import { CompositeTypeAttribute, extractSchemas, Schema, TableColumn, ViewColumn } from "extract-pg-schema"
