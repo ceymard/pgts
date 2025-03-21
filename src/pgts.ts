@@ -471,17 +471,6 @@ const cmd = command({
 
 
       ${s.relationsIn(...opts.schemas).map(v => build`
-        export namespace ${CamelCase(v.name)} {
-          export interface Create {
-            ${[...v.m_columns.values()].map(c => `${c.name}${c.isNullable || c.defaultValue ? "?" : ""}: ${s.getJsType(c.expandedType)}`).join("\n")}
-          }
-
-          export interface Result {
-            $: ${CamelCase(v.name)}
-            ${v.references.map(r => `$${r.distantName}: ${CamelCase(r.toTableObject.name)}.Result${r.toIsUnique ? "" : "[]"}${r.fromIsNullable ? " | null" : ""}`).join("\n")}
-          }
-        }
-
 
         /**
          * Table ${v.schemaName}.${v.name}
@@ -513,6 +502,21 @@ const cmd = command({
 
           ${blocks.show(CamelCase(v.name))}
         }
+
+        export namespace ${CamelCase(v.name)} {
+          export interface Create {
+            ${[...v.m_columns.values()].map(c => `${c.name}${c.isNullable || c.defaultValue ? "?" : ""}: ${s.getJsType(c.expandedType)}`).join("\n")}
+          }
+
+          export interface Result {
+            $: ${CamelCase(v.name)}
+            ${v.references.map(r => `$${r.distantName}: ${CamelCase(r.toTableObject.name)}.Result${r.toIsUnique ? "" : "[]"}${r.fromIsNullable ? " | null" : ""}`).join("\n")}
+          }
+
+          export declare function create(defs: Create): ${CamelCase(v.name)}
+          export declare function createInDb(defs: Create): Promise<${CamelCase(v.name)}>
+        }
+
         `)}
       `)
 

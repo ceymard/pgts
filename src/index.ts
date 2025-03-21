@@ -360,11 +360,6 @@ export type RelInstance<MT extends ModelMaker<any>, K extends keyof MT["meta"]["
 
 export type Selected<S> = S extends SelectBuilder<infer MT, infer Result> ? Result : never
 
-export namespace Model {
-  export interface Create { }
-  export interface Result { }
-}
-
 
 export abstract class Model {
 
@@ -572,14 +567,14 @@ export abstract class Model {
     })
   }
 
-  static async createInDb<T extends Model>(this: ModelMaker<T>, defs: any): Promise<T> {
-    const val = s.deserialize(defs, this)
+  static async createInDb(defs: any): Promise<any> {
+    const val = s.deserialize(defs, this as any)
     delete val.__old_pk
     console.log(val)
     return await val.save()
   }
 
-  static create<T extends Model>(this: ModelMaker<T>, defs: any) {
-    return s.deserialize(defs, this)
+  static create(defs: any): any {
+    return s.deserialize(defs, this as any)
   }
 }
