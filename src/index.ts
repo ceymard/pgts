@@ -7,10 +7,11 @@ export type Json = any
 export type Jsonb = Json
 
 export interface PgtsResult<MT extends ModelMaker<any>> {
-  row: InstanceType<MT>
+  $: InstanceType<MT>
 }
 
-export type ModelMaker<T extends Model> = {new(...a: any): T} & Pick<typeof Model, keyof typeof Model>
+export type ModelMaker<T extends Model> =
+  {new(...a: any): T} & Pick<typeof Model, keyof typeof Model>
 
 export const sym_count = Symbol("count")
 export type RequestCount = {total: number, first: number, last: number}
@@ -120,7 +121,7 @@ export interface PgtsMeta {
   rels: {[name: string]: {
     name: string,
     model: () => ModelMaker<any>,
-    is_null: boolean
+    nullable: boolean
     is_array: true | false,
     to_columns: string[],
     from_columns: string[],
@@ -196,7 +197,7 @@ export type PostgrestBinaryOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "li
 
 
 
-export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceType<MT>}> {
+export class SelectBuilder<MT extends ModelMaker<any>, Result = {$: InstanceType<MT>}> {
   constructor(
     public readonly model: MT,
     /** base_prop represents the property that we will try to deserialize into */
@@ -232,7 +233,7 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
   }
 
   empty(): Result {
-    const res = {row: this.model.create({})}
+    const res = {$: this.model.create({})}
     for (const sub of this.subbuilders) {
       ;(res as any)[sub.key] = sub.empty()
     }
@@ -308,18 +309,19 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
     return [
       ...(!this.wheres.length ? [] : [`${prefix}and=(${wheres.map(_where).join(",")})`]),
       // this.where,
+      ...(this._order.length ? [`${prefix}order=${this._order.join(",")}`] : []),
       ...this.subbuilders.flatMap(sb => sb.collectOthers()),
     ]
   }
 
-  rel<K extends RelKey<MT>, MT2 = {row: RelInstance<MT, K>}>(
+  rel<K extends RelKey<MT>, MT2 = {$: RelInstance<MT, K>}>(
     key: K,
-    select?: (s: SelectBuilder<Rel<MT, K>, {row: RelInstance<MT, K>}>) => SelectBuilder<Rel<MT, K>, MT2>
+    select?: (s: SelectBuilder<Rel<MT, K>, {$: RelInstance<MT, K>}>) => SelectBuilder<Rel<MT, K>, MT2>
   ): SelectBuilder<MT, Result & {[k in K]: RelIsArray<MT, K, MT2>}> {
     const meta = (this.model.meta.rels as any)[key] as PgtsMeta["rels"][string]
     const res = this.clone()
 
-    let sub = new SelectBuilder<Rel<MT, K>, {row: RelInstance<MT, K>}>(
+    let sub = new SelectBuilder<Rel<MT, K>, {$: RelInstance<MT, K>}>(
       meta.model() as any,
       key as string,
       meta.name,
@@ -332,8 +334,8 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {row: InstanceTy
   }
 
   deserialize(_row: any): Result {
-    const row = _row != null ? s.deserialize(_row, this.model) : null
-    const res: any = {row}
+    const $ = _row != null ? s.deserialize(_row, this.model) : null
+    const res: any = {$}
     for (const sub of this.subbuilders) {
       const sub_item = _row[sub.key]
       res[sub.key] = Array.isArray(sub_item) ? sub_item.map(i => i != null ? sub.deserialize(i) : null) : sub_item != null ? sub.deserialize(sub_item) : null
@@ -358,6 +360,11 @@ export type RelInstance<MT extends ModelMaker<any>, K extends keyof MT["meta"]["
 
 export type Selected<S> = S extends SelectBuilder<infer MT, infer Result> ? Result : never
 
+export namespace Model {
+  export interface Create { }
+  export interface Result { }
+}
+
 
 export abstract class Model {
 
@@ -369,6 +376,8 @@ export abstract class Model {
   }
 
   static meta: PgtsMeta
+  abstract __strkey_pk: string
+
   get __meta(): PgtsMeta { return (this.constructor as any).meta }
 
   get __model() { return this.constructor as new() => this }
@@ -379,8 +388,8 @@ export abstract class Model {
     this.__old_pk = undefined
   }
 
-  static select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {row: InstanceType<MT>}>) => SelectBuilder<MT, Result>) {
-    const builder = new SelectBuilder<MT, {row: InstanceType<MT>}>(this, "", "item", [])
+  static select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {$: InstanceType<MT>}>) => SelectBuilder<MT, Result>) {
+    const builder = new SelectBuilder<MT, {$: InstanceType<MT>}>(this, "", "item", [])
     return select(builder)
   }
 
@@ -527,7 +536,7 @@ export abstract class Model {
    */
   async update(...keys: (keyof this)[]): Promise<this> {
     const parts: string[] = []
-    const cst = this.__model
+    // const cst = this.__model
     const pk = this.__pk
 
     if (!pk || Object.keys(pk).length === 0 || !this.__old_pk) {

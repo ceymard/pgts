@@ -1,6 +1,6 @@
 import * as s from "@salesway/scotty"
 
-const re_number = /^[-+]?\d+(\.\d+)?$/
+// const re_number = /^[-+]?\d+(\.\d+)?$/
 
 function pad(x: number) { return x < 10 ? `0${x}` : x }
 function to_local_datetime(d: Date) {
@@ -193,7 +193,7 @@ export class PgRange<T extends {valueOf(): number}> {
 
 	iterateFn(fn: (iter: T) => T): Iterable<T> {
 		let iter = this.start
-		const is_date = this.start instanceof Date
+		// const is_date = this.start instanceof Date
 
 		const st = this.start.valueOf()
 		const en = this.end.valueOf()

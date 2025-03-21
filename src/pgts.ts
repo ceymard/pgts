@@ -21,12 +21,12 @@ declare global {
   interface Array<T> {
     enumerate(key: (keyof T) | ((v: T) => string), opts?: EnumerateOptions): Iterable<string>
   }
-  interface Iterator<T> {
-    enumerate(key: (keyof T) | ((v: T) => string), opts?: EnumerateOptions): Iterable<string>
-  }
+  // interface Iterator<T> {
+  //   enumerate(key: (keyof T) | ((v: T) => string), opts?: EnumerateOptions): Iterable<string>
+  // }
 }
 
-Array.prototype.enumerate = Iterator.prototype.enumerate = function enumerate<T>(key: (keyof T) | ((v: T) => string), opts: EnumerateOptions = {}): Iterable<string> {
+Array.prototype.enumerate = function enumerate<T>(key: (keyof T) | ((v: T) => string), opts: EnumerateOptions = {}): Iterable<string> {
   let ex = typeof key === "string" ? ((e: T) => e[key]) : key as ((v: T) => string)
 
   return this.map(elt => {
@@ -102,7 +102,7 @@ function CamelCase(s: string) {
 abstract class SchemaBase {
 
   constructor(public schemas: Record<string, Schema>, public allowed_schemas_str: string[]) {
-    writeFileSync("./output.json", JSON.stringify(schemas, null, 2))
+    // writeFileSync("./output.json", JSON.stringify(schemas, null, 2))
   }
 
 }
@@ -382,7 +382,7 @@ class SchemaDetails extends SchemaBase {
           fromColumns: def.from,
           toIsUnique,
           fromIsUnique,
-          fromIsNullable: def.from.some(c => this.all_columns.get(c)?.isNullable),
+          fromIsNullable: def.from.some(c => r.m_columns.get(c)?.isNullable),
         })
 
         // let backName = r.name + (!fromIsUnique && r.name[r.name.length - 1] !== "s" ? "s" : "") + (def.to.length === 1 ? "_by_" + def.strFrom : "")
@@ -400,7 +400,7 @@ class SchemaDetails extends SchemaBase {
           toColumns: def.from,
           toIsUnique: fromIsUnique,
           fromIsUnique: toIsUnique,
-          fromIsNullable: def.to.some(c => this.all_columns.get(c)?.isNullable),
+          fromIsNullable: def.to.some(c => r.m_columns.get(c)?.isNullable),
         })
 
       }
@@ -471,6 +471,18 @@ const cmd = command({
 
 
       ${s.relationsIn(...opts.schemas).map(v => build`
+        export namespace ${CamelCase(v.name)} {
+          export interface Create {
+            ${[...v.m_columns.values()].map(c => `${c.name}${c.isNullable || c.defaultValue ? "?" : ""}: ${s.getJsType(c.expandedType)}`).join("\n")}
+          }
+
+          export interface Result {
+            $: ${CamelCase(v.name)}
+            ${v.references.map(r => `$${r.distantName}: ${CamelCase(r.toTableObject.name)}.Result${r.toIsUnique ? "" : "[]"}${r.fromIsNullable ? " | null" : ""}`).join("\n")}
+          }
+        }
+
+
         /**
          * Table ${v.schemaName}.${v.name}
           ${v.comment}
@@ -481,7 +493,7 @@ const cmd = command({
             url: "/pg/${v.name}",
             schema: "${v.schemaName}",
             pk_fields: [${v.m_primaries.map(p => `"${p.name}" as const`).join(", ")}]${v.m_primaries.length === 0 ? " as string[]" : ""},
-            rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", is_null: ${r.fromIsNullable ? "true" : "false"} as const, is_array: ${r.toIsUnique ? "false" : "true"} as const, model: () => ${CamelCase(r.toTableObject.name)}, to_columns: [${r.toColumns.map(c => `"${c}"`).join(", ")}], from_columns: [${r.fromColumns.map(c => `"${c}"`).join(", ")}] }`).join(", ")}},
+            rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", nullable: ${r.fromIsNullable ? "true" : "false"} as const, is_array: ${r.toIsUnique ? "false" : "true"} as const, model: () => ${CamelCase(r.toTableObject.name)}, to_columns: [${r.toColumns.map(c => `"${c}"`).join(", ")}], from_columns: [${r.fromColumns.map(c => `"${c}"`).join(", ")}] }`).join(", ")}},
             columns: [${[...v.m_columns.values()].map(c => `"${c.name}"`).join(", ")}] as (${[...v.m_columns.values()].map(c => `"${c.name}"`).join(" | ")})[],
             computed_columns: [${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(", ")}] as (${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(" | ") || "string"})[],
           }
@@ -491,7 +503,9 @@ const cmd = command({
             return {${v.m_pk_assign}}
           }`}
 
-          ${v.m_indices.values().filter(i => i.isUnique).map(i => i.columns.length === 1 ? `get __strkey_${i.name}() { return this.${i.columns[0].name} }` : `get __strkey_${i.name}() { return \`\$\{${i.columns.map(c => `this.${c.name}`).join("}␟\$\{")}\}\` }`)}
+          ${v.m_indices.values().filter(i => i.isUnique).map(i => i.columns.length === 1 ? `get __strkey_${i.name}() { return ""+this.${i.columns[0].name} }` : `get __strkey_${i.name}() { return \`\$\{${i.columns.map(c => `this.${c.name}`).join("}␟\$\{")}\}\` }`)}
+
+          ${v.m_indices.values().filter(i => i.isPrimary).map(i => i.columns.length === 1 ? `get __strkey_pk() { return ""+this.${i.columns[0].name} }` : `get __strkey_pk() { return \`\$\{${i.columns.map(c => `this.${c.name}`).join("}␟\$\{")}\}\` }`)}
 
           ${v.m_columns.values().map(c => c.withDecorators)}
 
@@ -501,6 +515,10 @@ const cmd = command({
         }
         `)}
       `)
+
+      if (opts.debug) {
+        console.log(result)
+      }
 
     result = await format(result, {
       parser: "typescript",
@@ -513,9 +531,6 @@ const cmd = command({
       writeFileSync(opts.out, result, "utf-8")
     }
 
-    if (opts.debug) {
-      console.log(result)
-    }
   }
 })
 
