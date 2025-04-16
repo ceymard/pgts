@@ -135,6 +135,7 @@ class SchemaDetails extends SchemaBase {
     const is_array = type.match(/\[\]/)
     type = type.replace(/[^.]+\.|\[\]/g, "")
     return (match(
+      [/void/, "void"],
       [/text|name/, "string"],
       [/bool(ean)?/, "boolean"],
       [/(big)?int\d*?|numeric|float\d*?/, "number"],
@@ -267,11 +268,17 @@ class SchemaDetails extends SchemaBase {
       }) : []
 
       /** */
-      const m_attributes = new Map((tbl.kind === "compositeType" ? tbl.attributes : []).map(a => [a.name, {
+      const m_attributes = new Map((tbl.kind === "compositeType" ? tbl.attributes : []).map(a => {
+        const fullyTyped = `${a.name}: ${this.getJsType(a.expandedType)}${a.isNullable ? " | null" : ""}` as string
+        const withDecorators = `@(${this.getJsParser(a.expandedType)}) ${a.comment ? `/** ${a.comment} */ ` : ""}${fullyTyped} = ${this.getTryGetDefault(a)} /* pgtype: ${a.expandedType.replace(/pg_catalog\./, "")}, default: ${a.defaultValue} */`
+
+        return [a.name, {
         ...a,
         kind: "attribute" as const,
         qualifiedName: `${tbl.schemaName}.${tbl.name}.${a.name}` as string,
-      }] as const))
+        withDecorators,
+      }] as const})
+    )
 
       /** */
       const m_indices = new Map((tbl.kind === "table" ? tbl.indices : []).map(i => [i.name, i]))
@@ -319,7 +326,7 @@ class SchemaDetails extends SchemaBase {
 
   all_columns = new Map(this.relations.values().flatMap(v => {
     if (v.kind === "compositeType") {
-
+      // [...v.m_attributes.values()]
     }
     return [...v.m_columns.values()] //.map(c => [c.qualifiedName, c])
   }).map(c => [c.qualifiedName, c]))
@@ -462,7 +469,7 @@ const cmd = command({
       ${blocks.show("FILE_HEADER")}
 
 
-      ${s.functionsIn(...opts.schemas).map(v =>
+      ${s.functionsIn(...opts.schemas).filter(f => f.returnType !== "trigger").map(v =>
       `/** ${v.comment ?? ""} */
       export async function ${v.name}(${v.m_params.enumerate("asArgument")}): Promise<${v.m_return_type}> {
         return p.POST("api", "/pg/rpc/${v.name}", {${v.m_params.enumerate("name")}})
@@ -483,7 +490,7 @@ const cmd = command({
             schema: "${v.schemaName}",
             pk_fields: [${v.m_primaries.map(p => `"${p.name}" as const`).join(", ")}]${v.m_primaries.length === 0 ? " as string[]" : ""},
             rels: {${v.references.map(r => `$${r.distantName}: {name: "${r.pgtsName}", nullable: ${r.fromIsNullable ? "true" : "false"} as const, is_array: ${r.toIsUnique ? "false" : "true"} as const, model: () => ${CamelCase(r.toTableObject.name)}, to_columns: [${r.toColumns.map(c => `"${c}"`).join(", ")}], from_columns: [${r.fromColumns.map(c => `"${c}"`).join(", ")}] }`).join(", ")}},
-            columns: [${[...v.m_columns.values()].map(c => `"${c.name}"`).join(", ")}] as (${[...v.m_columns.values()].map(c => `"${c.name}"`).join(" | ")})[],
+            columns: [${[...v.m_columns.values(), ...v.m_attributes.values()].map(c => `"${c.name}"`).join(", ")}] as (${[...v.m_columns.values(), ...v.m_attributes.values()].map(c => `"${c.name}"`).join(" | ")})[],
             computed_columns: [${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(", ")}] as (${[...(s.functions_for_tables.get(v.tableQualifiedName)?.values() ?? [])].map(c => `"${c.name}"`).join(" | ") || "string"})[],
           }
 
@@ -496,21 +503,21 @@ const cmd = command({
 
           ${v.m_indices.values().filter(i => i.isPrimary).map(i => i.columns.length === 1 ? `get __strkey_pk() { return ""+this.${i.columns[0].name} }` : `get __strkey_pk() { return \`\$\{${i.columns.map(c => `this.${c.name}`).join("}␟\$\{")}\}\` }`)}
 
-          ${v.m_columns.values().map(c => c.withDecorators)}
+          ${[...v.m_columns.values(), ...v.m_attributes.values()].map(c => c.withDecorators)}
 
-          ${s.functions_for_tables.get(v.tableQualifiedName)?.map(f => `@(${s.getReturnDeser(f)}.ro) ${f.name}!: ${s.getReturnType(f)}`) ?? ""}
+          ${s.functions_for_tables.get(v.tableQualifiedName)?.map(f => `@(${s.getReturnDeser(f)}.RO) ${f.name}!: ${s.getReturnType(f)}`) ?? ""}
 
           ${blocks.show(CamelCase(v.name))}
-        }
+
+          }
+
+          export interface ${CamelCase(v.name)} extends p.Model {
+            create(defs: ${CamelCase(v.name)}.Create): ${CamelCase(v.name)}
+          }
 
         export namespace ${CamelCase(v.name)} {
           export interface Create {
-            ${[...v.m_columns.values()].map(c => `${c.name}${c.isNullable || c.defaultValue ? "?" : ""}: ${s.getJsType(c.expandedType)}`).join("\n")}
-          }
-
-          export interface Result {
-            $: ${CamelCase(v.name)}
-            ${v.references.map(r => `$${r.distantName}: ${CamelCase(r.toTableObject.name)}.Result${r.toIsUnique ? "" : "[]"}${r.fromIsNullable ? " | null" : ""}`).join("\n")}
+            ${[...v.m_columns.values()].map(c => `${c.name}${c.isNullable || c.defaultValue ? "?" : ""}: ${s.getJsType(c.expandedType)} ${c.isNullable ? "| null" : ""}`).join("\n")}
           }
 
           export declare function create(defs: Create): ${CamelCase(v.name)}

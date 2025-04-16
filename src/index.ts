@@ -197,7 +197,15 @@ export type PostgrestBinaryOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "li
 
 
 
-export class SelectBuilder<MT extends ModelMaker<any>, Result = {$: InstanceType<MT>}> {
+export type ResultCreator<T extends {$: Model}> = {[K in keyof T]:
+  T[K] extends { create(arg: infer c): any} ? c // generally the $ key which is a simple model
+  : T[K] extends (infer C)[] ? C extends {$: Model} ? ResultCreator<C>[] : never // array of simple models
+  : T[K] extends { $: Model } ? ResultCreator<T[K]> // array of models
+  : never
+}
+
+
+export class SelectBuilder<MT extends ModelMaker<any>, Result extends {$: Model} = {$: InstanceType<MT>}> {
   constructor(
     public readonly model: MT,
     /** base_prop represents the property that we will try to deserialize into */
@@ -220,6 +228,10 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {$: InstanceType
     const res = this.clone()
     res.fields = ["*", ...this.model.meta.computed_columns]
     return res
+  }
+
+  create(arg: ResultCreator<Result>): Result {
+    return arg as Result
   }
 
   clone(): this {
@@ -314,7 +326,7 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result = {$: InstanceType
     ]
   }
 
-  rel<K extends RelKey<MT>, MT2 = {$: RelInstance<MT, K>}>(
+  rel<K extends RelKey<MT>, MT2 extends {$: RelInstance<MT, K>} = {$: RelInstance<MT, K>}>(
     key: K,
     select?: (s: SelectBuilder<Rel<MT, K>, {$: RelInstance<MT, K>}>) => SelectBuilder<Rel<MT, K>, MT2>
   ): SelectBuilder<MT, Result & {[k in K]: RelIsArray<MT, K, MT2>}> {
@@ -361,6 +373,9 @@ export type RelInstance<MT extends ModelMaker<any>, K extends keyof MT["meta"]["
 export type Selected<S> = S extends SelectBuilder<infer MT, infer Result> ? Result : never
 
 
+let __unknown_strkey_k = 0
+let sym_unknown_strkey = Symbol("unknown_strkey")
+
 export abstract class Model {
 
   [s.sym_on_deserialized]() {
@@ -371,7 +386,14 @@ export abstract class Model {
   }
 
   static meta: PgtsMeta
-  abstract __strkey_pk: string
+  get __strkey_pk(): string {
+    let p = (this as any)[sym_unknown_strkey]
+    if (p == null) {
+      p = "_k_" + __unknown_strkey_k++
+      ;(this as any)[sym_unknown_strkey] = p
+    }
+    return p
+  }
 
   get __meta(): PgtsMeta { return (this.constructor as any).meta }
 
@@ -383,7 +405,7 @@ export abstract class Model {
     this.__old_pk = undefined
   }
 
-  static select<MT extends ModelMaker<any>, Result>(this: MT, select: (s: SelectBuilder<MT, {$: InstanceType<MT>}>) => SelectBuilder<MT, Result>) {
+  static select<MT extends ModelMaker<any>, Result extends {$: InstanceType<MT>}>(this: MT, select: (s: SelectBuilder<MT, {$: InstanceType<MT>}>) => SelectBuilder<MT, Result>) {
     const builder = new SelectBuilder<MT, {$: InstanceType<MT>}>(this, "", "item", [])
     return select(builder)
   }
@@ -567,10 +589,11 @@ export abstract class Model {
     })
   }
 
+  create(defs: any): any { }
+
   static async createInDb(defs: any): Promise<any> {
     const val = s.deserialize(defs, this as any)
     delete val.__old_pk
-    console.log(val)
     return await val.save()
   }
 
