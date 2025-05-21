@@ -134,32 +134,44 @@ class SchemaDetails extends SchemaBase {
   getJsType(type: string) {
     const is_array = type.match(/\[\]/)
     type = type.replace(/[^.]+\.|\[\]/g, "")
+    if (type[0] === '"') {
+      type = type.slice(1, -1)
+    }
+
     return (match(
       [/void/, "void"],
       [/text|name/, "string"],
       [/bool(ean)?/, "boolean"],
       [/(big)?int\d*?|numeric|float\d*?/, "number"],
       [/timestamp(tz)?|date/, "Date"],
-      [/^jsonb?$/, "any"],
+      [/^jsonb?/, "any"],
+      [/tsrange/, "p.PgRange<Date>"],
+      [/tstzrange/, "p.PgRange<Date>"],
     )(type) ?? CamelCase(type)) + (is_array ? "[]" : "")
   }
 
   getJsParser(type: string) {
     const is_array = type.match(/\[\]/)
     type = type.replace(/[^.]+\.|\[\]/g, "")
+    if (type[0] === '"') {
+      type = type.slice(1, -1)
+    }
 
     const res = (match(
       [/text|name/, "s.str"],
       [/bool(ean)?/, "s.bool"],
       [/int\d*?|numeric|float\d*?/, "s.num"],
       [/timestamp(tz)?|date/, "s.date"],
-      [/^jsonb?$/, "s.as_is"],
+      [/^jsonb?/, "s.as_is"],
+      [/ts(tz)?range/, "p.range"]
     )(type) ?? `s.embed(() => ${CamelCase(type)})`) + (is_array ? ".array" : "")
     return res
   }
 
   getReturnType(fn: Schema["functions"][number]) {
     const _arr = (fn.returnsSet ? "[]" : "")
+
+    console.error(fn.name, fn.returnType)
     if (typeof fn.returnType === "string") {
       return this.getJsType(fn.returnType) + _arr
     }
@@ -472,7 +484,7 @@ const cmd = command({
       ${s.functionsIn(...opts.schemas).filter(f => f.returnType !== "trigger").map(v =>
       `/** ${v.comment ?? ""} */
       export async function ${v.name}(${v.m_params.enumerate("asArgument")}): Promise<${v.m_return_type}> {
-        return p.POST("api", "/pg/rpc/${v.name}", {${v.m_params.enumerate("name")}})
+        return p.POST("api", "/pg/rpc/${v.name}", {${v.m_params.enumerate("name")}})${v.m_return_type.match(/^[A-Z]/) ? `.then(res => s.deserialize(res as unknown${v.m_return_type.match(/\[\]/) ? "[]" : ""}, ${v.m_return_type.replace(/\[\]/, "")}))` : ""}
       }
       `)}
 

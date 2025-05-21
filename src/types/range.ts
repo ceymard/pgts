@@ -83,7 +83,10 @@ export class PgRange<T extends {valueOf(): number}> {
 			const ostart = num.start.valueOf()
 			const oend = num.end.valueOf()
 
-			if (ostart < start || oend > end) {
+			if (
+				ostart < start
+				|| oend > end
+			) {
 				return false
 			}
 
@@ -107,8 +110,15 @@ export class PgRange<T extends {valueOf(): number}> {
 			return false
 		}
 
-		return this.contains(range.start) || this.contains(range.end)
-			|| range.contains(this.start) || range.contains(this.end)
+		const me_start = this.start.valueOf()
+		const me_end = this.end.valueOf()
+		const me_bounds = this.bounds
+		const range_start = range.start.valueOf()
+		const range_end = range.end.valueOf()
+		const range_bounds = range.bounds
+
+		return (me_start === range_end && me_bounds[0] === "[" && range_bounds[1] === "]" || me_start < range_end)
+			&& (me_end === range_start && me_bounds[1] === "]" && range_bounds[0] === "[" || me_end > range_start)
 	}
 
 	/** merge with another range and returns a range that contains both */

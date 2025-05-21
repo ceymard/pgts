@@ -77,6 +77,34 @@ export function DELETE(schema: string, url: string) {
 }
 
 
+function _date_to_iso(date: Date) {
+
+  // Get the local date and time components
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const seconds = date.getSeconds().toString().padStart(2, '0');
+  const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+
+  // Get the local timezone offset in minutes
+  const timezoneOffset = date.getTimezoneOffset();
+
+  // Convert the offset to hours and minutes
+  const offsetHours = Math.abs(Math.floor(timezoneOffset / 60)).toString().padStart(2, '0');
+  const offsetMinutes = Math.abs(timezoneOffset % 60).toString().padStart(2, '0');
+  const offsetSign = timezoneOffset <= 0 ? '+' : '-';
+
+  // Create the timezone offset string
+  const timezoneOffsetString = `${offsetSign}${offsetHours}:${offsetMinutes}`;
+
+  // Construct the ISO string with the local date and time
+  const dateWithOffset = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}${timezoneOffsetString}`;
+
+  return dateWithOffset
+}
+
 
 export async function POST(schema: string, url: string, body: any = {}, opts: { } = {}): Promise<any> {
   return FETCH(url, {
@@ -87,7 +115,13 @@ export async function POST(schema: string, url: string, body: any = {}, opts: { 
       "Accept-Profile": schema,
     },
     credentials: "include",
-    body: typeof body !== "string" ? JSON.stringify(body) : body
+    body: typeof body !== "string" ? JSON.stringify(body, function (key, val) {
+      const v = this[key]
+      if (v instanceof Date) {
+        return _date_to_iso(v)
+      }
+      return val
+    }) : body
   }).then(r => {
     if (r.status === 204) return undefined
     const ct = r.headers.get("Content-Type")
