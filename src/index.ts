@@ -396,6 +396,11 @@ export class SelectBuilder<MT extends ModelMaker<any>, Result extends {$: Model}
     const dres = res.map(r => this.deserialize(r))
     return dres
   }
+
+  async fetchOne(): Promise<Result> {
+    const res = await this.fetch()
+    return res[0]
+  }
 }
 
 export type RelIsArray<MT extends ModelMaker<any>, K extends RelKey<MT>, T> = true extends MT["meta"]["rels"][K]["is_array"] ? T[] : T
